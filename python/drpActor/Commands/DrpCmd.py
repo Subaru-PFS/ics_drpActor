@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 import os
+import time
 
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
+from astropy.io import fits
 from drpActor.myIngestTask import MyIngestTask
 from lsst.obs.pfs.detrendTask import DetrendTask
 
@@ -26,9 +28,9 @@ class DrpCmd(object):
 
         # Define typed command arguments for the above commands.
         self.keys = keys.KeysDictionary("drp_drp", (1, 1),
-                                       keys.Key("expTime", types.Float(), help="The exposure time"),
-                                       keys.Key("context", types.String(), help="custom drp folder"),
-                                       keys.Key("fitsPath", types.String(), help="FITS File path"),
+                                        keys.Key("expTime", types.Float(), help="The exposure time"),
+                                        keys.Key("context", types.String(), help="custom drp folder"),
+                                        keys.Key("fitsPath", types.String(), help="FITS File path"),
 
                                         )
 
@@ -48,23 +50,39 @@ class DrpCmd(object):
         fitsPath = cmdKeys["fitsPath"].values[0]
         myIngest = MyIngestTask()
         cmd.inform("text='%s'" % myIngest.customIngest(fitsPath))
-        cmd.finish("ingest=%s'"%fitsPath)
+        cmd.finish("ingest=%s'" % fitsPath)
 
     def detrend(self, cmd):
         cmdKeys = cmd.cmd.keywords
-     
+
         fitsPath = cmdKeys["fitsPath"].values[0]
-        imgFolder = fitsPath.split('/')[-2]
+        hdulist = fits.open(fitsPath)
+        imgFolder = hdulist[0].header['DATE-OBS'][:10]
         imgNumber = fitsPath.split('/')[-1][4:10]
         id_visit = int(imgNumber)
 
         args = ['/drp/lam', '-c', 'isr.doDark=False', '-c', 'isr.doFlat=False', '--rerun']
         context = 'pfs/%s' % cmdKeys["context"].values[0] if "context" in cmdKeys else 'pfs'
         args.append(context)
-        args.extend(['--id', 'visit=%i' % id_visit])
-        
+        args.extend(['--id', 'visit=%i' % id_visit, "--no-version"])
+
         detrendTask = DetrendTask()
         detrendTask.parseAndRun(args=args)
         detrendPath = '/drp/lam/rerun/%s/postISRCCD/%s/v%s' % (context, imgFolder, imgNumber.zfill(7))
-        detrendPath, b, fname = next(os.walk(detrendPath))
-        cmd.finish("detrend=%s/%s'" % (detrendPath, fname[-1]))
+
+        try:
+            detrendPath, b, fname = self.getFilename(detrendPath)
+            cmd.finish("detrend=%s/%s'" % (detrendPath, fname[-1]))
+        except:
+            cmd.fail("text='file not created'")
+
+    def getFilename(self, detrendPath, i=0):
+        time.sleep(0.2)
+        print detrendPath
+        try:
+            return next(os.walk(detrendPath))
+        except:
+            if i < 200:
+                return self.getFilename(detrendPath, i + 1)
+            else:
+                raise
