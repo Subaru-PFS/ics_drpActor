@@ -30,4 +30,4 @@ class TopCmd(object):
         cmdKeys = cmd.cmd.keywords
         drpFolder = cmdKeys["drpFolder"].values[0]
         self.actor.drpFolder = drpFolder
-        cmd.finish("text='ok'")
+        cmd.finish("drpFolder='%s'" % drpFolder)
