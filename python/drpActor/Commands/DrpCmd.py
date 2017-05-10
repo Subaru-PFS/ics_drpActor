@@ -6,6 +6,7 @@ import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 from astropy.io import fits
 from drpActor.myIngestTask import MyIngestTask
+from drpActor.utils import threaded
 from lsst.obs.pfs.detrendTask import DetrendTask
 
 
@@ -19,6 +20,7 @@ class DrpCmd(object):
         # associated methods when matched. The callbacks will be
         # passed a single argument, the parsed and typed command.
         #
+        self.name = 'drpProcess'
         self.vocab = [
             ('ping', '', self.ping),
             ('status', '', self.status),
@@ -44,6 +46,7 @@ class DrpCmd(object):
         cmd.inform('text="Present!"')
         cmd.finish()
 
+    @threaded
     def ingest(self, cmd):
         cmdKeys = cmd.cmd.keywords
 
@@ -52,6 +55,7 @@ class DrpCmd(object):
         cmd.inform("text='%s'" % myIngest.customIngest(fitsPath))
         cmd.finish("ingest=%s'" % fitsPath)
 
+    @threaded
     def detrend(self, cmd):
         cmdKeys = cmd.cmd.keywords
 

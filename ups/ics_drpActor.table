@@ -1,5 +1,6 @@
 setupRequired(tron_actorcore)
 setupRequired(obs_pfs)
+setupRequired(ics_actorkeys)
 
 pathPrepend(PATH, ${PRODUCT_DIR}/bin)
 pathPrepend(PYTHONPATH, ${PRODUCT_DIR}/python)
