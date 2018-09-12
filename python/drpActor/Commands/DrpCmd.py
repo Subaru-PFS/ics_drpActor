@@ -82,7 +82,6 @@ class DrpCmd(object):
 
     def getFilename(self, detrendPath, i=0):
         time.sleep(0.2)
-        print detrendPath
         try:
             return next(os.walk(detrendPath))
         except:
