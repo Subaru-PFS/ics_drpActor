@@ -6,11 +6,15 @@ import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 from astropy.io import fits
 from drpActor.myIngestTask import MyIngestTask
-from drpActor.utils import threaded
 from lsst.obs.pfs.detrendTask import DetrendTask
 
 
 class DrpCmd(object):
+    armNum = {'1': 'b',
+              '2': 'r',
+              '3': 'n',
+              '4': 'm'}
+
     def __init__(self, actor):
         # This lets us access the rest of the actor.
         self.actor = actor
@@ -20,19 +24,18 @@ class DrpCmd(object):
         # associated methods when matched. The callbacks will be
         # passed a single argument, the parsed and typed command.
         #
-        self.name = 'drpProcess'
         self.vocab = [
             ('ping', '', self.ping),
             ('status', '', self.status),
-            ('ingest', '<fitsPath>', self.ingest),
-            ('detrend', '[<context>] <fitsPath>', self.detrend),
+            ('ingest', '<filepath>', self.ingest),
+            ('detrend', '<filepath> [<drpFolder>]', self.detrend),
         ]
 
         # Define typed command arguments for the above commands.
         self.keys = keys.KeysDictionary("drp_drp", (1, 1),
                                         keys.Key("expTime", types.Float(), help="The exposure time"),
-                                        keys.Key("context", types.String(), help="custom drp folder"),
-                                        keys.Key("fitsPath", types.String(), help="FITS File path"),
+                                        keys.Key("drpFolder", types.String(), help="custom drp folder"),
+                                        keys.Key("filepath", types.String(), help="FITS File path"),
 
                                         )
 
@@ -46,46 +49,43 @@ class DrpCmd(object):
         cmd.inform('text="Present!"')
         cmd.finish()
 
-    @threaded
     def ingest(self, cmd):
         cmdKeys = cmd.cmd.keywords
 
-        fitsPath = cmdKeys["fitsPath"].values[0]
+        filepath = cmdKeys["filepath"].values[0]
         myIngest = MyIngestTask()
-        cmd.inform("text='%s'" % myIngest.customIngest(fitsPath))
-        cmd.finish("ingest=%s'" % fitsPath)
+        cmd.inform("text='%s'" % myIngest.customIngest(filepath))
+        cmd.finish("ingest=%s'" % filepath)
 
-    @threaded
     def detrend(self, cmd):
+        t0 = time.time()
         cmdKeys = cmd.cmd.keywords
 
-        fitsPath = cmdKeys["fitsPath"].values[0]
-        hdulist = fits.open(fitsPath)
-        imgFolder = hdulist[0].header['DATE-OBS'][:10]
-        imgNumber = fitsPath.split('/')[-1][4:10]
-        id_visit = int(imgNumber)
+        filepath = cmdKeys["filepath"].values[0]
+        hdulist = fits.open(filepath)
+        nightFolder = hdulist[0].header['DATE-OBS'][:10]
+        __, filename = os.path.split(filepath)
 
-        args = ['/drp/lam', '-c', 'isr.doDark=False', '-c', 'isr.doFlat=False', '--rerun']
-        context = 'pfs/%s' % cmdKeys["context"].values[0] if "context" in cmdKeys else 'pfs'
-        args.append(context)
-        args.extend(['--id', 'visit=%i' % id_visit, "--no-version"])
+        prefix = filename[:4]
+        visitId = int(filename[4:10])
+        specId = int(filename[10])
+        arm = self.armNum[filename[11]]
+
+        drpFolder = cmdKeys["drpFolder"].values[0] if "drpFolder" in cmdKeys else self.actor.drpFolder
+        drpFolder = os.path.join('pfs', drpFolder)
+
+        args = ['/drp/lam', '-c', 'isr.doDark=False', '-c', 'isr.doFlat=False', '--rerun', drpFolder, '--id',
+                'visit=%i' % visitId, "--no-version"]
 
         detrendTask = DetrendTask()
         detrendTask.parseAndRun(args=args)
-        detrendPath = '/drp/lam/rerun/%s/postISRCCD/%s/v%s' % (context, imgFolder, imgNumber.zfill(7))
+        detrendPath = os.path.join('/drp/lam/rerun', drpFolder, 'postISRCCD', nightFolder,
+                                   'v%s' % str(visitId).zfill(7))
 
-        try:
-            detrendPath, b, fname = self.getFilename(detrendPath)
-            cmd.finish("detrend=%s/%s'" % (detrendPath, fname[-1]))
-        except:
-            cmd.fail("text='file not created'")
+        fullPath = '%s/%s%s%d.fits' % (detrendPath, prefix, arm, specId)
+        while not os.path.isfile(fullPath):
+            if time.time() - t0 > 30:
+                raise TimeoutError('file has not been created')
+            time.sleep(1)
 
-    def getFilename(self, detrendPath, i=0):
-        time.sleep(0.2)
-        try:
-            return next(os.walk(detrendPath))
-        except:
-            if i < 200:
-                return self.getFilename(detrendPath, i + 1)
-            else:
-                raise
+        cmd.finish('detrend=%s' % fullPath)

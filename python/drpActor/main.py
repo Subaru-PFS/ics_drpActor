@@ -1,48 +1,39 @@
 #!/usr/bin/env python
 
+from functools import partial
+import os
 from actorcore.Actor import Actor
-from actorcore.QThread import QThread
+from twisted.internet import reactor
 
 
 class DrpActor(Actor):
     def __init__(self, name, productName=None, configFile=None, debugLevel=30):
         # This sets up the connections to/from the hub, the logger, and the twisted reactor.
         #
+        cams = ['b1', 'r1']
+
         Actor.__init__(self, name,
                        productName=productName,
-                       configFile=configFile, modelNames=['ccd_r1'])
+                       configFile=configFile, modelNames=['ccd_%s' % cam for cam in cams])
 
-        self.allThreads = {}
-        self.lastFilepath = None
-        self.drpFolder = "test"
+        reactor.callLater(5, partial(self.attachCallbacks, cams))
+        self.drpFolder = 'test'
 
-        drpCheck = QThread(self, "drpCheck")
-        drpCheck.handleTimeout = self.checkExp
-        self.allThreads["drpCheck"] = drpCheck
-        drpCheck.start()
+    def attachCallbacks(self, cams):
+        self.logger.info('attaching callbacks cams=%s' % (','.join(cams)))
 
-        drpProcess = QThread(self, "drpProcess")
-        drpProcess.handleTimeout = self.sleep
-        self.allThreads["drpProcess"] = drpProcess
-        drpProcess.start()
+        for cam in cams:
+            self.models['ccd_%s' % cam].keyVarDict['filepath'].addCallback(self.newFilepath, callNow=False)
 
-    def checkFilepath(self):
-        ccdKeys = self.models['ccd_r1']
-        [root, night, fname] = ccdKeys.keyVarDict['filepath'].getValue()
+    def newFilepath(self, keyvar):
+        try:
+            [root, night, fname] = keyvar.getValue()
+        except ValueError:
+            return
 
-        return "%s/pfs/%s/%s" % (root, night, fname)
-
-    def checkExp(self):
-        filepath = self.checkFilepath()
-        self.lastFilepath = filepath if self.lastFilepath is None else self.lastFilepath
-
-        if filepath != self.lastFilepath:
-            self.callCommand("ingest fitsPath=%s " % filepath)
-            self.callCommand("detrend fitsPath=%s context=%s" % (filepath, self.drpFolder))
-            self.lastFilepath = filepath
-
-    def sleep(self):
-        pass
+        filepath = os.path.join(root, 'pfs', night, fname)
+        self.callCommand('ingest filepath=%s' % filepath)
+        self.callCommand('detrend filepath=%s' % filepath)
 
 
 def main():
