@@ -2,7 +2,6 @@
 
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
-from drpActor.utils import threaded
 
 
 class TopCmd(object):
@@ -25,7 +24,6 @@ class TopCmd(object):
                                         keys.Key("drpFolder", types.String(), help="custom drp folder"),
                                         )
 
-    @threaded
     def changeFolder(self, cmd):
         cmdKeys = cmd.cmd.keywords
         drpFolder = cmdKeys["drpFolder"].values[0]
