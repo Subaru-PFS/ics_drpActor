@@ -17,7 +17,7 @@ class DrpActor(Actor):
                        configFile=configFile, modelNames=['ccd_%s' % cam for cam in cams])
 
         reactor.callLater(5, partial(self.attachCallbacks, cams))
-        self.drpFolder = 'test'
+        self.drpFolder = 'ginga'
 
     def attachCallbacks(self, cams):
         self.logger.info('attaching callbacks cams=%s' % (','.join(cams)))
@@ -33,7 +33,7 @@ class DrpActor(Actor):
 
         filepath = os.path.join(root, 'pfs', night, fname)
         self.callCommand('ingest filepath=%s' % filepath)
-        #self.callCommand('detrend filepath=%s' % filepath)
+        self.callCommand('detrend filepath=%s' % filepath)
 
 
 def main():

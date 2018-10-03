@@ -1,17 +1,15 @@
-
 from lsst.obs.pfs.detrendTask import DetrendTask
 
 
-def detrend(visit, rerun, site=None, cam=None, cmdlineArgs=None):
+def detrend(visit, rerun='ginga', drppath="/drp/lam", cmdlineArgs=None):
     """example code from Craig"""
-    arm = cam[0]
-    spec = int(cam[1])
 
-    args = [dataRoot(site)]
-    args.append('--rerun=%s' % (rerun))
+    args = [drppath]
+    args.append('--rerun=%s' % rerun)
     args.append('--doraise')
     args.append('--clobber-versions')
-    args.extend(('--id', 'visit=%s' % (visit)))
+    args.extend(('--id', 'visit=%d' % visit))
+
     if cmdlineArgs is not None:
         if isinstance(cmdlineArgs, str):
             import shlex
@@ -37,10 +35,7 @@ def detrend(visit, rerun, site=None, cam=None, cmdlineArgs=None):
 
     return cooked
 
-
-
-
-#python -c "
-#from lsst.daf.persistence import Butler
-#butler = Butler("/drp/lam/rerun/pfs/detrend")
-#arc = butler.get(\"pfsArm\", visit=5825, arm=\"r\", spectrograph=1)
+# python -c "
+# from lsst.daf.persistence import Butler
+# butler = Butler("/drp/lam/rerun/pfs/detrend")
+# arc = butler.get(\"pfsArm\", visit=5825, arm=\"r\", spectrograph=1)
