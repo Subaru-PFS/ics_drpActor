@@ -9,7 +9,7 @@ class MyIngestTask(IngestTask):
     def customIngest(cls, path):
         ingestTask = IngestTask()
         config = ingestTask.ConfigClass()
-        parser = ingestTask.ArgumentParser(name="ingest")
-        args = parser.parse_args(config, args=['/drp/lam', path])
+        parser = ingestTask.ArgumentParser(name="ingest", )
+        args = parser.parse_args(config, args=['/drp/lam', "--mode=link", path, "-c", "clobber=True", "register.ignore=True"])
         task = cls(config=args.config)
         task.run(args)
