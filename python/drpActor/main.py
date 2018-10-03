@@ -16,7 +16,7 @@ class DrpActor(Actor):
                        productName=productName,
                        configFile=configFile, modelNames=['ccd_%s' % cam for cam in cams])
 
-        #reactor.callLater(5, partial(self.attachCallbacks, cams))
+        reactor.callLater(5, partial(self.attachCallbacks, cams))
         self.drpFolder = 'test'
 
     def attachCallbacks(self, cams):
