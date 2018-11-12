@@ -1,12 +1,14 @@
 #!/usr/bin/env python
-import os
-import time
-
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
+import os
+import time
+from importlib import reload
 from astropy.io import fits
 from drpActor.myIngestTask import MyIngestTask
-from lsst.obs.pfs.detrendTask import DetrendTask
+
+import drpActor.script as script
+reload(script)
 
 
 class DrpCmd(object):
@@ -71,64 +73,18 @@ class DrpCmd(object):
         specId = int(filename[10])
         arm = self.armNum[filename[11]]
         rerun = "ginga"
-        drppath = "/drp/lam"
+        target = "/drp/lam"
 
-        st = self.doDetrend(str(visitId), rerun,drppath)
+        script.doDetrend(visit=visitId, rerun=rerun, target=target)
 
-#        drpFolder = cmdKeys["drpFolder"].values[0] if "drpFolder" in cmdKeys else self.actor.drpFolder
-#        drpFolder = os.path.join('pfs', drpFolder)
-
-#        args = ['/drp/lam', '-c', 'isr.doDark=False', '-c', 'isr.doFlat=False', '--rerun', drpFolder, '--id',
-#                'visit=%i' % visitId, "--no-version"]
-
-#        detrendTask = DetrendTask()
-#        detrendTask.parseAndRun(args=args)
-#        detrendPath = os.path.join('/drp/lam/rerun', drpFolder, 'postISRCCD', nightFolder,
-#                                   'v%s' % str(visitId).zfill(7))
-
-        detrendPath = os.path.join(drppath,'rerun', rerun, 'detrend/calExp', nightFolder,
+        detrendPath = os.path.join(target, 'rerun', rerun, 'detrend/calExp', nightFolder,
                                    'v%s' % str(visitId).zfill(7))
 
-        fullPath = '%s/%s%s%s%s.fits' % (detrendPath, 'calExp-LA',str(visitId).zfill(7),arm,specId )
-        print("detrend file: ",fullPath)
+        fullPath = '%s/%s%s%s%s.fits' % (detrendPath, 'calExp-LA', str(visitId).zfill(6), arm, specId)
+
         while not os.path.isfile(fullPath):
             if time.time() - t0 > 30:
                 raise TimeoutError('file has not been created')
             time.sleep(1)
 
         cmd.finish('detrend=%s' % fullPath)
-
-    def doDetrend(self, visit, rerun, drppath="/drp/lam", cmdlineArgs=None):
-
-    #        args = [dataRoot(site)]
-        args = [drppath]
-        args.append('--calib=%s/CALIB' % (drppath))
-        args.append('--rerun=%s/detrend' % (rerun))
-        args.append('--doraise')
-        args.append('--clobber-versions')
-        args.extend(('--id', 'visit=%s' % (visit)))
-        if cmdlineArgs is not None:
-            if isinstance(cmdlineArgs, str):
-                import shlex
-                cmdlineArgs = shlex.split(cmdlineArgs)
-            args.extend(cmdlineArgs)
-
-        config = DetrendTask.ConfigClass()
-        config.isr.doBias = True
-        config.isr.doDark = False
-
-        # things we probably want to turn on
-        config.isr.doFlat = False
-        config.isr.doLinearize = False
-        config.isr.doFringe = False
-
-        config.isr.doSaturationInterpolation = False
-        config.repair.doInterpolate = False
-        config.repair.cosmicray.keepCRs = False
-
-        detrendTask = DetrendTask()
-        print("args: ", args)
-        cooked = detrendTask.parseAndRun(config=config, args=args)
-        print("detrend res: ",cooked)
-
-        return cooked
