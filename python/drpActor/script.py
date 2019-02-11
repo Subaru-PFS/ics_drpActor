@@ -6,9 +6,10 @@ def doDetrend(visit, rerun='ginga', target="/drp/lam", cmdlineArgs=None):
 
     conf = {'isr.doFlat': False,
             'isr.doDark': False,
-            'repair.cosmicray.keepCRs': False,
+            'isr.doBias': True,
+            'repair.cosmicray.keepCRs': True,
+            'repair.cosmicray.nCrPixelMax': 10000
             }
-    # batchArgs2="-c repair.cosmicray.nCrPixelMax=100000"
 
     batchArgs = [target, '--calib', '%s/CALIB' % target, '--rerun', '%s/detrend' % rerun, '--id', 'visit=%d' % visit,
                  "--clobber-versions"]

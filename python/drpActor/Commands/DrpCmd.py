@@ -72,8 +72,9 @@ class DrpCmd(object):
         visitId = int(filename[4:10])
         specId = int(filename[10])
         arm = self.armNum[filename[11]]
+        cam = '%s%d' % (arm, specId)
+        target = '/drp/%s' % cam
         rerun = "ginga"
-        target = "/drp/lam"
 
         script.doDetrend(visit=visitId, rerun=rerun, target=target)
 
