@@ -1,5 +1,28 @@
 #!/usr/bin/env python
 
+# Monkey patch twisted version mechanism, which conflicts with
+# lsst.base.packages.getPythonPackages()
+#
+# MUST be called before any twisted import, which both we and
+# actorcore.Actor do.
+#
+def _monkeyPatchIncremental():
+    import incremental
+
+    incremental.Version.saved_cmp = incremental.Version.__cmp__
+
+    def __monkeyCmp__(self, other):
+        if isinstance(other, str):
+            a = self.public()
+            b = other
+            return (a > b) - (a < b)
+        return self.saved_cmp(other)
+
+    incremental.Version.__cmp__ = __monkeyCmp__
+
+
+_monkeyPatchIncremental()
+
 import os
 from functools import partial
 
@@ -34,7 +57,6 @@ class DrpActor(Actor):
 
         filepath = os.path.join(root, 'pfs', night, fname)
         self.callCommand('ingest filepath=%s' % filepath)
-
         reactor.callLater(2, partial(self.actor.callCommand, 'detrend filepath=%s' % filepath))
 
 
