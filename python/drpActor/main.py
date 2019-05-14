@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
-from functools import partial
 import os
+from functools import partial
+
 from actorcore.Actor import Actor
 from twisted.internet import reactor
 

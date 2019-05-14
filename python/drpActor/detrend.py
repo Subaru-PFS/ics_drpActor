@@ -1,11 +1,8 @@
 from lsst.obs.pfs.detrendTask import DetrendTask
 
 
-def detrend(visit, target, rerun='ginga', site=None, cam=None, cmdlineArgs=None):
+def doDetrend(visit, target, rerun, site=None, cam=None, cmdlineArgs=None):
     """example code from Craig"""
-    arm = cam[0]
-    spec = int(cam[1])
-
     args = [target]
     args.extend(('--calib', '%s/CALIB' % target))
     args.extend(('--rerun', '%s/detrend' % rerun))

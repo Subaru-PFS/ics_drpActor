@@ -8,7 +8,7 @@ def doDetrend(visit, rerun='ginga', target="/drp/lam", cmdlineArgs=None):
             'isr.doDark': False,
             'isr.doBias': True,
             'repair.cosmicray.keepCRs': True,
-            'repair.cosmicray.nCrPixelMax': 10000
+            'repair.cosmicray.nCrPixelMax': 250000
             }
 
     batchArgs = [target, '--calib', '%s/CALIB' % target, '--rerun', '%s/detrend' % rerun, '--id', 'visit=%d' % visit,

@@ -12,13 +12,7 @@ class MyIngestTask(IngestTask):
         super(MyIngestTask, self).__init__(*args, **kwargs)
 
     @classmethod
-    def customIngest(cls, filepath):
-        __, filename = os.path.split(filepath)
-
-        specId = int(filename[10])
-        arm = cls.armNum[filename[11]]
-        cam = '%s%d' % (arm, specId)
-        target = '/drp/%s' % cam
+    def customIngest(cls, filepath, target):
         ingestTask = IngestTask()
         config = ingestTask.ConfigClass()
         parser = ingestTask.ArgumentParser(name="ingest", )
