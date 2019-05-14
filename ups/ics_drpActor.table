@@ -1,5 +1,5 @@
 setupRequired(tron_actorcore)
-setupRequired(obs_pfs)
+setupOptional(obs_pfs)
 setupRequired(ics_actorkeys)
 
 pathPrepend(PATH, ${PRODUCT_DIR}/bin)
