@@ -34,7 +34,8 @@ class DrpActor(Actor):
 
         filepath = os.path.join(root, 'pfs', night, fname)
         self.callCommand('ingest filepath=%s' % filepath)
-        self.callCommand('detrend filepath=%s' % filepath)
+
+        reactor.callLater(2, partial(self.actor.callCommand, 'detrend filepath=%s' % filepath))
 
 
 def main():
