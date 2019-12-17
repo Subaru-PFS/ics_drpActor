@@ -84,7 +84,7 @@ class DrpCmd(object):
         arm = self.armNum[filename[11]]
 
         detrendPath = os.path.join(target, 'rerun', rerun, 'detrend/calExp', nightFolder,
-                                   'v%s' % str(visitId).zfill(7))
+                                   'v%s' % str(visitId).zfill(6))
 
         fullPath = '%s/%s%s%s%s.fits' % (detrendPath, 'calExp-SA', str(visitId).zfill(6), arm, specId)
 
