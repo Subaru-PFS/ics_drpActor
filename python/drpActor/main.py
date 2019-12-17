@@ -54,7 +54,7 @@ class DrpActor(Actor):
         except ValueError:
             return
 
-        filepath = os.path.join(root, 'pfs', night, fname)
+        filepath = os.path.join(root, night, fname)
         self.callCommand('ingest filepath=%s' % filepath)
         reactor.callLater(2, partial(self.callCommand, 'detrend filepath=%s' % filepath))
 

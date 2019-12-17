@@ -86,7 +86,7 @@ class DrpCmd(object):
         detrendPath = os.path.join(target, 'rerun', rerun, 'detrend/calExp', nightFolder,
                                    'v%s' % str(visitId).zfill(7))
 
-        fullPath = '%s/%s%s%s%s.fits' % (detrendPath, 'calExp-LA', str(visitId).zfill(6), arm, specId)
+        fullPath = '%s/%s%s%s%s.fits' % (detrendPath, 'calExp-SA', str(visitId).zfill(6), arm, specId)
 
         if not os.path.isfile(fullPath):
             detrend.doDetrend(visit=visitId, target=target, rerun=rerun)
