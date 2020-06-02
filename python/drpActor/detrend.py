@@ -1,7 +1,7 @@
 from lsst.obs.pfs.detrendTask import DetrendTask
 
 
-def doDetrend(visit, target, rerun, site=None, cam=None, cmdlineArgs=None):
+def doDetrend(visit, target, rerun):
     """example code from Craig"""
     args = [target]
     args.extend(('--calib', '%s/CALIB' % target))
@@ -10,15 +10,9 @@ def doDetrend(visit, target, rerun, site=None, cam=None, cmdlineArgs=None):
     # args.append('--doraise')
     args.append('--clobber-versions')
 
-    if cmdlineArgs is not None:
-        if isinstance(cmdlineArgs, str):
-            import shlex
-            cmdlineArgs = shlex.split(cmdlineArgs)
-        args.extend(cmdlineArgs)
-
     config = DetrendTask.ConfigClass()
     config.isr.doBias = True
-    config.isr.doDark = False
+    config.isr.doDark = True
     config.isr.doFlat = False
 
     # things we probably want to turn on

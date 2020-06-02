@@ -28,6 +28,7 @@ from functools import partial
 
 from actorcore.Actor import Actor
 from twisted.internet import reactor
+from drpActor.utils import getInfo
 
 
 class DrpActor(Actor):
@@ -54,9 +55,11 @@ class DrpActor(Actor):
         except ValueError:
             return
 
-        filepath = os.path.join(root, night, fname)
+        filepath = os.path.join(root, night, 'sps', fname)
         self.callCommand('ingest filepath=%s' % filepath)
-        reactor.callLater(2, partial(self.callCommand, 'detrend filepath=%s' % filepath))
+
+        visit, arm = getInfo(filepath)
+        reactor.callLater(5, partial(self.callCommand, f'detrend visit={visit} arm={arm}'))
 
 
 def main():

@@ -4,20 +4,16 @@ import time
 from importlib import reload
 
 import drpActor.detrend as detrend
+import lsst.daf.persistence as dafPersist
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
-from astropy.io import fits
-from drpActor.myIngestTask import MyIngestTask
+from drpActor.ingest import doIngest
+from drpActor.utils import imgPath
 
 reload(detrend)
 
 
 class DrpCmd(object):
-    armNum = {'1': 'b',
-              '2': 'r',
-              '3': 'n',
-              '4': 'm'}
-
     def __init__(self, actor):
         # This lets us access the rest of the actor.
         self.actor = actor
@@ -31,7 +27,7 @@ class DrpCmd(object):
             ('ping', '', self.ping),
             ('status', '', self.status),
             ('ingest', '<filepath> [<target>]', self.ingest),
-            ('detrend', '<filepath> [<rerun>]', self.detrend),
+            ('detrend', '<visit> <arm> [<rerun>]', self.detrend),
         ]
 
         # Define typed command arguments for the above commands.
@@ -39,6 +35,8 @@ class DrpCmd(object):
                                         keys.Key("target", types.String(), help="target drp folder"),
                                         keys.Key("rerun", types.String(), help="rerun drp folder"),
                                         keys.Key("filepath", types.String(), help="FITS File path"),
+                                        keys.Key("arm", types.String(), help="arm"),
+                                        keys.Key("visit", types.Int(), help="visitId"),
                                         )
 
     @property
@@ -55,7 +53,6 @@ class DrpCmd(object):
 
     def status(self, cmd):
         """Report status and version; obtain and send current data"""
-
         cmd.inform('text="Present!"')
         cmd.finish()
 
@@ -64,36 +61,20 @@ class DrpCmd(object):
 
         filepath = cmdKeys["filepath"].values[0]
         target = cmdKeys["target"].values[0] if 'target' in cmdKeys else self.target
-        myIngest = MyIngestTask()
-        cmd.inform("text='%s'" % myIngest.customIngest(filepath, target))
-        cmd.finish("ingest=%s'" % filepath)
+        doIngest(filepath, target)
+        cmd.finish(f"ingest={filepath}")
 
     def detrend(self, cmd):
-        t0 = time.time()
         cmdKeys = cmd.cmd.keywords
 
-        filepath = cmdKeys["filepath"].values[0]
+        visit = cmdKeys["visit"].values[0]
+        arm = cmdKeys["arm"].values[0]
         target = cmdKeys["target"].values[0] if 'target' in cmdKeys else self.target
         rerun = cmdKeys["rerun"].values[0] if 'rerun' in cmdKeys else self.rerun
-        hdulist = fits.open(filepath)
-        nightFolder = hdulist[0].header['DATE-OBS'][:10]
-        __, filename = os.path.split(filepath)
+        butler = dafPersist.Butler(os.path.join(target, 'rerun', rerun, 'detrend'))
 
-        visitId = int(filename[4:10])
-        specId = int(filename[10])
-        arm = self.armNum[filename[11]]
+        if not imgPath(butler, visit, arm):
+            detrend.doDetrend(visit=visit, target=target, rerun=rerun)
 
-        detrendPath = os.path.join(target, 'rerun', rerun, 'detrend/calExp', nightFolder,
-                                   'v%s' % str(visitId).zfill(6))
-
-        fullPath = '%s/%s%s%s%s.fits' % (detrendPath, 'calExp-SA', str(visitId).zfill(6), arm, specId)
-
-        if not os.path.isfile(fullPath):
-            detrend.doDetrend(visit=visitId, target=target, rerun=rerun)
-
-        while not os.path.isfile(fullPath):
-            if time.time() - t0 > 45:
-                raise TimeoutError('file has not been created')
-            time.sleep(1)
-
-        cmd.finish('detrend=%s' % fullPath)
+        fullPath = imgPath(butler, visit, arm)
+        cmd.finish(f"detrend={fullPath}")
