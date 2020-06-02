@@ -1,8 +1,8 @@
 import os
-from lsst.pipe.tasks.ingest import IngestTask
+from lsst.obs.pfs.ingest import PfsIngestTask
 
 
-class MyIngestTask(IngestTask):
+class MyIngestTask(PfsIngestTask):
     armNum = {'1': 'b',
               '2': 'r',
               '3': 'n',
@@ -13,10 +13,9 @@ class MyIngestTask(IngestTask):
 
     @classmethod
     def customIngest(cls, filepath, target):
-        ingestTask = IngestTask()
+        ingestTask = PfsIngestTask()
         config = ingestTask.ConfigClass()
         parser = ingestTask.ArgumentParser(name="ingest", )
-        args = parser.parse_args(config,
-                                 args=[target, "--mode=link", filepath, "-c", "clobber=True", "register.ignore=True"])
+        args = parser.parse_args(config,args=[target, '--pfsConfigDir', '/data/drp/pfsDesign', '--mode=link', filepath, '-c', 'clobber=True'])
         task = cls(config=args.config)
         task.run(args)
