@@ -35,7 +35,8 @@ class DrpActor(Actor):
     def __init__(self, name, productName=None, configFile=None, debugLevel=30):
         # This sets up the connections to/from the hub, the logger, and the twisted reactor.
         #
-        cams = ['b1', 'r1']
+        specIds = list(range(1, 5))
+        cams = [f'b{specId}' for specId in specIds] + [f'r{specId}' for specId in specIds]
 
         Actor.__init__(self, name,
                        productName=productName,

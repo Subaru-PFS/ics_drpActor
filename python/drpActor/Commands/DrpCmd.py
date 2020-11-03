@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import os
-import time
 from importlib import reload
 
 import drpActor.detrend as detrend
