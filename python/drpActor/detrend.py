@@ -1,12 +1,14 @@
 from lsst.obs.pfs.detrendTask import DetrendTask
 
 
-def doDetrend(visit, target, rerun):
+def doDetrend(visit, target, rerun, arm=None):
     """example code from Craig"""
     args = [target]
     args.extend(('--calib', '%s/CALIB' % target))
     args.extend(('--rerun', '%s/detrend' % rerun))
     args.extend(('--id', 'visit=%d' % visit))
+    if arm is not None:
+        args.append('arm=%s' % arm)
     # args.append('--doraise')
     args.append('--clobber-versions')
 
@@ -14,6 +16,7 @@ def doDetrend(visit, target, rerun):
     config.isr.doBias = True
     config.isr.doDark = True
     config.isr.doFlat = False
+    config.isr.doDefect = False # Until PIPE2D-715 is fixed.
 
     # things we probably want to turn on
 
