@@ -23,7 +23,10 @@ def _monkeyPatchIncremental():
 
 _monkeyPatchIncremental()
 
+import logging
 import os
+import threading
+
 from functools import partial
 
 from actorcore.Actor import Actor
@@ -52,6 +55,7 @@ class DrpActor(Actor):
 
             for cam in self.cams:
                 self.models['ccd_%s' % cam].keyVarDict['filepath'].addCallback(self.newFilepath, callNow=False)
+            self.everConnected = True
 
     def newFilepath(self, keyvar):
         try:
