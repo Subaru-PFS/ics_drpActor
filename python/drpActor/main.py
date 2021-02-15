@@ -23,7 +23,10 @@ def _monkeyPatchIncremental():
 
 _monkeyPatchIncremental()
 
+import logging
 import os
+import threading
+
 from functools import partial
 
 from actorcore.Actor import Actor
@@ -36,19 +39,23 @@ class DrpActor(Actor):
         # This sets up the connections to/from the hub, the logger, and the twisted reactor.
         #
         specIds = list(range(1, 5))
-        cams = [f'b{specId}' for specId in specIds] + [f'r{specId}' for specId in specIds]
+        self.cams = [f'b{specId}' for specId in specIds] + [f'r{specId}' for specId in specIds]
 
         Actor.__init__(self, name,
                        productName=productName,
-                       configFile=configFile, modelNames=['ccd_%s' % cam for cam in cams])
+                       configFile=configFile, modelNames=['ccd_%s' % cam for cam in self.cams])
 
-        reactor.callLater(5, partial(self.attachCallbacks, cams))
+        self.everConnected = False
 
-    def attachCallbacks(self, cams):
-        self.logger.info('attaching callbacks cams=%s' % (','.join(cams)))
+    def connectionMade(self):
+        """Called when the actor connection has been established: wire in callbacks."""
 
-        for cam in cams:
-            self.models['ccd_%s' % cam].keyVarDict['filepath'].addCallback(self.newFilepath, callNow=False)
+        if self.everConnected is False:
+            self.logger.info('attaching callbacks cams=%s' % (','.join(self.cams)))
+
+            for cam in self.cams:
+                self.models['ccd_%s' % cam].keyVarDict['filepath'].addCallback(self.newFilepath, callNow=False)
+            self.everConnected = True
 
     def newFilepath(self, keyvar):
         try:
@@ -56,12 +63,10 @@ class DrpActor(Actor):
         except ValueError:
             return
 
+        self.logger.info(f'newfilepath: {root}, {night}, {fname}. threads={threading.active_count()}')
+
         filepath = os.path.join(root, night, 'sps', fname)
-        self.callCommand('ingest filepath=%s' % filepath)
-
-        visit, arm = getInfo(filepath)
-        reactor.callLater(5, partial(self.callCommand, f'detrend visit={visit} arm={arm}'))
-
+        self.callCommand('process filepath=%s' % filepath)
 
 def main():
     actor = DrpActor('drp', productName='drpActor')
