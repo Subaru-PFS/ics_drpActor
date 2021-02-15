@@ -59,12 +59,10 @@ class DrpActor(Actor):
         except ValueError:
             return
 
+        self.logger.info(f'newfilepath: {root}, {night}, {fname}. threads={threading.active_count()}')
+
         filepath = os.path.join(root, night, 'sps', fname)
-        self.callCommand('ingest filepath=%s' % filepath)
-
-        visit, arm = getInfo(filepath)
-        reactor.callLater(5, partial(self.callCommand, f'detrend visit={visit} arm={arm}'))
-
+        self.callCommand('process filepath=%s' % filepath)
 
 def main():
     actor = DrpActor('drp', productName='drpActor')
