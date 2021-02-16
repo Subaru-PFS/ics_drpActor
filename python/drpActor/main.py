@@ -66,7 +66,8 @@ class DrpActor(Actor):
         self.logger.info(f'newfilepath: {root}, {night}, {fname}. threads={threading.active_count()}')
 
         filepath = os.path.join(root, night, 'sps', fname)
-        self.callCommand('process filepath=%s' % filepath)
+        #self.callCommand('process filepath=%s' % filepath)
+        self.callCommand('ingest filepath=%s' % filepath)
 
 def main():
     actor = DrpActor('drp', productName='drpActor')

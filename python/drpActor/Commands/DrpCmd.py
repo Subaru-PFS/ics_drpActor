@@ -8,6 +8,7 @@ import lsst.daf.persistence as dafPersist
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 from drpActor.ingest import doIngest
+from drpActor.detrend import doDetrend
 from drpActor.utils import imgPath, getInfo
 
 reload(detrend)
@@ -17,7 +18,7 @@ class DrpCmd(object):
     def __init__(self, actor):
         # This lets us access the rest of the actor.
         self.actor = actor
-
+        self.butler = dafPersist.Butler(os.path.join(self.target, 'rerun', self.rerun, 'detrend'))
         # Declare the commands we implement. When the actor is started
         # these are registered with the parser, which will call the
         # associated methods when matched. The callbacks will be
@@ -76,11 +77,15 @@ class DrpCmd(object):
         arm = cmdKeys["arm"].values[0]
         target = cmdKeys["target"].values[0] if 'target' in cmdKeys else self.target
         rerun = cmdKeys["rerun"].values[0] if 'rerun' in cmdKeys else self.rerun
-        butler = dafPersist.Butler(os.path.join(target, 'rerun', rerun, 'detrend'))
 
-        cmd.debug('text="detrend cmd started on %s"' % (visit))
+        if 'target' or 'rerun' in cmdKeys:
+            butler = dafPersist.Butler(os.path.join(target, 'rerun', rerun, 'detrend'))
+        else:
+            butler = self.butler
+
         if not imgPath(butler, visit, arm):
-            detrend.doDetrend(visit=visit, target=target, rerun=rerun)
+            cmd.debug('text="detrend cmd started on %s"' % (visit))
+            doDetrend(target, rerun, visit)
 
         fullPath = imgPath(butler, visit, arm)
         cmd.inform(f"detrend={fullPath}")

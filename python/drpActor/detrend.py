@@ -1,7 +1,27 @@
+import logging
+import os
+import time
+
 from lsst.obs.pfs.detrendTask import DetrendTask
 
 
-def doDetrend(visit, target, rerun, arm=None):
+def doDetrend(target, rerun, visit):
+    logger = logging.getLogger('detrend')
+    config = dict(doBias=True,
+                  doDark=True,
+                  doFlat=False,
+                  doDefect=False)
+
+    cmd = f"detrend.py {target} -j 2 --calib  {target}/CALIB --rerun {rerun} --id visit={visit} --no-versions "
+    isr = ' '.join(['-c'] + [f'isr.{key}={str(val)}' for key, val in config.items()])
+
+    t0 = time.time()
+    os.system(cmd)
+    t1 = time.time()
+    logger.info(f'detrend took {t1 - t0:0.4f}s: {cmd}')
+
+
+def doDetrend2(visit, target, rerun, arm=None):
     """example code from Craig"""
     args = [target]
     args.extend(('--calib', '%s/CALIB' % target))
@@ -16,7 +36,7 @@ def doDetrend(visit, target, rerun, arm=None):
     config.isr.doBias = True
     config.isr.doDark = True
     config.isr.doFlat = False
-    config.isr.doDefect = False # Until PIPE2D-715 is fixed.
+    config.isr.doDefect = False  # Until PIPE2D-715 is fixed.
 
     # things we probably want to turn on
 
