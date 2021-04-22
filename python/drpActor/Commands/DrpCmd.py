@@ -1,14 +1,14 @@
 #!/usr/bin/env python
 import os
-from importlib import reload
 import time
+from importlib import reload
 
 import drpActor.detrend as detrend
 import lsst.daf.persistence as dafPersist
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
-from drpActor.ingest import doIngest
 from drpActor.detrend import doDetrend
+from drpActor.ingest import doIngest
 from drpActor.utils import imgPath, getInfo
 
 reload(detrend)
@@ -18,7 +18,13 @@ class DrpCmd(object):
     def __init__(self, actor):
         # This lets us access the rest of the actor.
         self.actor = actor
-        self.butler = dafPersist.Butler(os.path.join(self.target, 'rerun', self.rerun, 'detrend'))
+        try:
+            self.butler = dafPersist.Butler(os.path.join(self.target, 'rerun', self.rerun, 'detrend'))
+        except Exception as e:
+            self.actor.logger.warning('text=%s' % self.actor.strTraceback(e))
+            self.actor.logger.warning('butler could not be instantiated, might be a fresh one')
+            self.butler = None
+
         # Declare the commands we implement. When the actor is started
         # these are registered with the parser, which will call the
         # associated methods when matched. The callbacks will be
@@ -83,6 +89,10 @@ class DrpCmd(object):
         else:
             butler = self.butler
 
+        if butler is None:
+            cmd.inform('text="butler not loaded, detrending one frame now ...')
+            doDetrend(target, rerun, visit)
+
         if not imgPath(butler, visit, arm):
             cmd.debug('text="detrend cmd started on %s"' % (visit))
             doDetrend(target, rerun, visit)
@@ -112,4 +122,4 @@ class DrpCmd(object):
         t1 = time.time()
 
         fullPath = imgPath(butler, visit, arm)
-        cmd.finish(f"detrend={fullPath}; text='ran in {t1-t0:0.4f}s'")
+        cmd.finish(f"detrend={fullPath}; text='ran in {t1 - t0:0.4f}s'")
