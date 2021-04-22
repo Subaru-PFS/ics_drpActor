@@ -55,6 +55,10 @@ class DrpCmd(object):
     def rerun(self):
         return self.actor.config.get(self.actor.site, 'rerun').strip()
 
+    @property
+    def pfsConfigDir(self):
+        return self.actor.config.get(self.actor.site, 'pfsConfigDir').strip()
+
     def ping(self, cmd):
         """Query the actor for liveness/happiness."""
         cmd.finish("text='Present and (probably) well'")
@@ -70,7 +74,7 @@ class DrpCmd(object):
         filepath = cmdKeys["filepath"].values[0]
         target = cmdKeys["target"].values[0] if 'target' in cmdKeys else self.target
         cmd.debug('text="ingest cmd started on %s"' % (filepath))
-        doIngest(filepath, target)
+        doIngest(filepath, target=target, pfsConfigDir=self.pfsConfigDir)
 
         cmd.inform(f"ingest={filepath}")
         if doFinish:
