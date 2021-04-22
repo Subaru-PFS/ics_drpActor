@@ -18,12 +18,7 @@ class DrpCmd(object):
     def __init__(self, actor):
         # This lets us access the rest of the actor.
         self.actor = actor
-        try:
-            self.butler = dafPersist.Butler(os.path.join(self.target, 'rerun', self.rerun, 'detrend'))
-        except Exception as e:
-            self.actor.logger.warning('text=%s' % self.actor.strTraceback(e))
-            self.actor.logger.warning('butler could not be instantiated, might be a fresh one')
-            self.butler = None
+        self.butler = None
 
         # Declare the commands we implement. When the actor is started
         # these are registered with the parser, which will call the
@@ -88,14 +83,15 @@ class DrpCmd(object):
         target = cmdKeys["target"].values[0] if 'target' in cmdKeys else self.target
         rerun = cmdKeys["rerun"].values[0] if 'rerun' in cmdKeys else self.rerun
 
-        if 'target' or 'rerun' in cmdKeys:
+        if 'target' in cmdKeys or 'rerun' in cmdKeys:
             butler = dafPersist.Butler(os.path.join(target, 'rerun', rerun, 'detrend'))
         else:
-            butler = self.butler
+            butler = self.loadButler()
 
         if butler is None:
             cmd.inform('text="butler not loaded, detrending one frame now ...')
             doDetrend(target, rerun, visit)
+            butler = self.loadButler()
 
         if not imgPath(butler, visit, arm):
             cmd.debug('text="detrend cmd started on %s"' % (visit))
@@ -127,3 +123,17 @@ class DrpCmd(object):
 
         fullPath = imgPath(butler, visit, arm)
         cmd.finish(f"detrend={fullPath}; text='ran in {t1 - t0:0.4f}s'")
+
+    def loadButler(self):
+        """load butler. """
+        if self.butler is None:
+            try:
+                butler = dafPersist.Butler(os.path.join(self.target, 'rerun', self.rerun, 'detrend'))
+            except Exception as e:
+                self.actor.logger.warning('text=%s' % self.actor.strTraceback(e))
+                self.actor.logger.warning('butler could not be instantiated, might be a fresh one')
+                butler = None
+
+            self.butler = butler
+
+        return self.butler
