@@ -43,11 +43,11 @@ class DrpCmd(object):
 
     @property
     def target(self):
-        return self.actor.config.get('drp', 'target').strip()
+        return self.actor.config.get(self.actor.site, 'target').strip()
 
     @property
     def rerun(self):
-        return self.actor.config.get('drp', 'rerun').strip()
+        return self.actor.config.get(self.actor.site, 'rerun').strip()
 
     def ping(self, cmd):
         """Query the actor for liveness/happiness."""

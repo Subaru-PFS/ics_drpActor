@@ -23,18 +23,19 @@ def _monkeyPatchIncremental():
 
 _monkeyPatchIncremental()
 
-import logging
 import os
 import threading
-
 from functools import partial
 
 from actorcore.Actor import Actor
-from twisted.internet import reactor
 from drpActor.utils import getInfo
+from pfs.utils.spectroIds import getSite
+from twisted.internet import reactor
 
 
 class DrpActor(Actor):
+    allSites = dict(L='LAM', S='SUBARU')
+
     def __init__(self, name, productName=None, configFile=None, debugLevel=30):
         # This sets up the connections to/from the hub, the logger, and the twisted reactor.
         #
@@ -46,6 +47,7 @@ class DrpActor(Actor):
                        configFile=configFile, modelNames=['ccd_%s' % cam for cam in self.cams])
 
         self.everConnected = False
+        self.site = DrpActor.allSites[getSite()]
 
     def connectionMade(self):
         """Called when the actor connection has been established: wire in callbacks."""
@@ -66,10 +68,11 @@ class DrpActor(Actor):
         self.logger.info(f'newfilepath: {root}, {night}, {fname}. threads={threading.active_count()}')
 
         filepath = os.path.join(root, night, 'sps', fname)
-        #self.callCommand('process filepath=%s' % filepath)
+        # self.callCommand('process filepath=%s' % filepath)
         self.callCommand('ingest filepath=%s' % filepath)
         visit, arm = getInfo(filepath)
         reactor.callLater(5, partial(self.callCommand, f'detrend visit={visit} arm={arm}'))
+
 
 def main():
     actor = DrpActor('drp', productName='drpActor')
