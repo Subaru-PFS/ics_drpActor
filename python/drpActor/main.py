@@ -41,13 +41,13 @@ class DrpActor(Actor):
         #
         specIds = list(range(1, 5))
         self.cams = [f'b{specId}' for specId in specIds] + [f'r{specId}' for specId in specIds]
+        self.site = DrpActor.allSites[getSite()]
 
         Actor.__init__(self, name,
                        productName=productName,
                        configFile=configFile, modelNames=['ccd_%s' % cam for cam in self.cams])
 
         self.everConnected = False
-        self.site = DrpActor.allSites[getSite()]
 
     def connectionMade(self):
         """Called when the actor connection has been established: wire in callbacks."""

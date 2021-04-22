@@ -1,14 +1,14 @@
 #!/usr/bin/env python
 import os
-from importlib import reload
 import time
+from importlib import reload
 
 import drpActor.detrend as detrend
 import lsst.daf.persistence as dafPersist
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
-from drpActor.ingest import doIngest
 from drpActor.detrend import doDetrend
+from drpActor.ingest import doIngest
 from drpActor.utils import imgPath, getInfo
 
 reload(detrend)
@@ -18,7 +18,8 @@ class DrpCmd(object):
     def __init__(self, actor):
         # This lets us access the rest of the actor.
         self.actor = actor
-        self.butler = dafPersist.Butler(os.path.join(self.target, 'rerun', self.rerun, 'detrend'))
+        self.butler = None
+
         # Declare the commands we implement. When the actor is started
         # these are registered with the parser, which will call the
         # associated methods when matched. The callbacks will be
@@ -49,6 +50,10 @@ class DrpCmd(object):
     def rerun(self):
         return self.actor.config.get(self.actor.site, 'rerun').strip()
 
+    @property
+    def pfsConfigDir(self):
+        return self.actor.config.get(self.actor.site, 'pfsConfigDir').strip()
+
     def ping(self, cmd):
         """Query the actor for liveness/happiness."""
         cmd.finish("text='Present and (probably) well'")
@@ -64,7 +69,7 @@ class DrpCmd(object):
         filepath = cmdKeys["filepath"].values[0]
         target = cmdKeys["target"].values[0] if 'target' in cmdKeys else self.target
         cmd.debug('text="ingest cmd started on %s"' % (filepath))
-        doIngest(filepath, target)
+        doIngest(filepath, target=target, pfsConfigDir=self.pfsConfigDir)
 
         cmd.inform(f"ingest={filepath}")
         if doFinish:
@@ -78,10 +83,15 @@ class DrpCmd(object):
         target = cmdKeys["target"].values[0] if 'target' in cmdKeys else self.target
         rerun = cmdKeys["rerun"].values[0] if 'rerun' in cmdKeys else self.rerun
 
-        if 'target' or 'rerun' in cmdKeys:
+        if 'target' in cmdKeys or 'rerun' in cmdKeys:
             butler = dafPersist.Butler(os.path.join(target, 'rerun', rerun, 'detrend'))
         else:
-            butler = self.butler
+            butler = self.loadButler()
+
+        if butler is None:
+            cmd.inform('text="butler not loaded, detrending one frame now ...')
+            doDetrend(target, rerun, visit)
+            butler = self.loadButler()
 
         if not imgPath(butler, visit, arm):
             cmd.debug('text="detrend cmd started on %s"' % (visit))
@@ -112,4 +122,18 @@ class DrpCmd(object):
         t1 = time.time()
 
         fullPath = imgPath(butler, visit, arm)
-        cmd.finish(f"detrend={fullPath}; text='ran in {t1-t0:0.4f}s'")
+        cmd.finish(f"detrend={fullPath}; text='ran in {t1 - t0:0.4f}s'")
+
+    def loadButler(self):
+        """load butler. """
+        if self.butler is None:
+            try:
+                butler = dafPersist.Butler(os.path.join(self.target, 'rerun', self.rerun, 'detrend'))
+            except Exception as e:
+                self.actor.logger.warning('text=%s' % self.actor.strTraceback(e))
+                self.actor.logger.warning('butler could not be instantiated, might be a fresh one')
+                butler = None
+
+            self.butler = butler
+
+        return self.butler
