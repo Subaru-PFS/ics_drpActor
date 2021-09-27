@@ -1,17 +1,17 @@
-#!/usr/bin/env python
-import os
-import time
-from importlib import reload
-
 import drpActor.detrend as detrend
+import drpActor.utils.cockroaches as cockroaches
 import lsst.daf.persistence as dafPersist
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
+import os
+import time
 from drpActor.detrend import doDetrend
 from drpActor.ingest import doIngest
 from drpActor.utils import imgPath, getInfo
+from importlib import reload
 
 reload(detrend)
+reload(cockroaches)
 
 
 class DrpCmd(object):
@@ -19,6 +19,8 @@ class DrpCmd(object):
         # This lets us access the rest of the actor.
         self.actor = actor
         self.butler = None
+        self.doStartLoop = False
+        self.lastVisit = None
 
         # Declare the commands we implement. When the actor is started
         # these are registered with the parser, which will call the
@@ -31,6 +33,8 @@ class DrpCmd(object):
             ('ingest', '<filepath> [<target>]', self.ingest),
             ('detrend', '<visit> <arm> [<rerun>]', self.detrend),
             ('process', '<filepath>  [<target>] [<rerun>]', self.process),
+            ('startDotLoop', '', self.startDotLoop)
+            ('processDotData', '', self.processDotData),
         ]
 
         # Define typed command arguments for the above commands.
@@ -79,6 +83,7 @@ class DrpCmd(object):
         cmdKeys = cmd.cmd.keywords
 
         visit = cmdKeys["visit"].values[0]
+        self.lastVisit = visit
         arm = cmdKeys["arm"].values[0]
         target = cmdKeys["target"].values[0] if 'target' in cmdKeys else self.target
         rerun = cmdKeys["rerun"].values[0] if 'rerun' in cmdKeys else self.rerun
@@ -99,6 +104,7 @@ class DrpCmd(object):
 
         fullPath = imgPath(butler, visit, arm)
         cmd.inform(f"detrend={fullPath}")
+
         if doFinish:
             cmd.finish()
 
@@ -137,3 +143,35 @@ class DrpCmd(object):
             self.butler = butler
 
         return self.butler
+
+    def processDotData(self, cmd):
+        """startFpsLoop. """
+        cmdKeys = cmd.cmd.keywords
+        visit = self.lastVisit
+
+        dataId = dict(visit=visit, arm="r", spectrograph=1)
+        calexp = self.butler.get('calexp', dataId)
+        df = cockroaches.robustFluxEstimation(calexp.image.array)
+        df['visit'] = visit
+
+        if self.doStartLoop:
+            filename = f'cockroaches{str(visit).zfill(6)}.csv'
+            self.filepath = os.path.join('.', filename)
+            df.to_csv(self.filepath)
+            self.doStartLoop = False
+
+        else:
+            allDf = pd.read_csv(self.filepath, index_col=0)
+            last = allDf.query(f'visit=={allDf.visit.max()}').sort_values('cobraId')
+            fluxGradient = df.centerFlux.to_numpy() - last.centerFlux.to_numpy()
+            keepMoving = fluxGradient < 0
+            df['fluxGradient'] = fluxGradient
+            df['keepMoving'] = keepMoving
+            allDf = pd.concat([allDf, df]).reset_index(drop=True)
+            allDf.to_csv(self.filepath)
+
+        cmd.finish(f'fpsDotData={self.filepath}')
+
+    def startDotLoop(self):
+        self.doStartLoop = True
+        cmd.finish('text="starting do loop, run cockroaches, run ! "')
