@@ -5,14 +5,14 @@ import time
 from lsst.obs.pfs.detrendTask import DetrendTask
 
 
-def doDetrend(target, rerun, visit):
+def doDetrend(target, CALIB, rerun, visit):
     logger = logging.getLogger('detrend')
     config = dict(doBias=True,
                   doDark=True,
                   doFlat=False,
                   doDefect=False)
 
-    cmd = f"detrend.py {target} -j 2 --calib  {target}/CALIB --rerun {rerun}/detrend --id visit={visit} --no-versions "
+    cmd = f"detrend.py {target} -j 2 --calib  {target}/{CALIB} --rerun {rerun} --id visit={visit} --no-versions "
     isr = ' '.join(['-c'] + [f'isr.{key}={str(val)}' for key, val in config.items()])
     cmd += isr
     t0 = time.time()

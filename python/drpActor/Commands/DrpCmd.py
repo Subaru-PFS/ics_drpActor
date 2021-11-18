@@ -9,6 +9,8 @@ from drpActor.detrend import doDetrend
 from drpActor.ingest import doIngest
 from drpActor.utils import imgPath, getInfo
 from importlib import reload
+import pandas as pd
+import numpy as np
 
 reload(detrend)
 reload(cockroaches)
@@ -33,7 +35,7 @@ class DrpCmd(object):
             ('ingest', '<filepath> [<target>]', self.ingest),
             ('detrend', '<visit> <arm> [<rerun>]', self.detrend),
             ('process', '<filepath>  [<target>] [<rerun>]', self.process),
-            ('startDotLoop', '', self.startDotLoop)
+            ('startDotLoop', '', self.startDotLoop),
             ('processDotData', '', self.processDotData),
         ]
 
@@ -49,6 +51,10 @@ class DrpCmd(object):
     @property
     def target(self):
         return self.actor.config.get(self.actor.site, 'target').strip()
+
+    @property
+    def CALIB(self):
+        return self.actor.config.get(self.actor.site, 'CALIB').strip()
 
     @property
     def rerun(self):
@@ -95,12 +101,12 @@ class DrpCmd(object):
 
         if butler is None:
             cmd.inform('text="butler not loaded, detrending one frame now ...')
-            doDetrend(target, rerun, visit)
+            doDetrend(target, self.CALIB, rerun, visit)
             butler = self.loadButler()
 
         if not imgPath(butler, visit, arm):
             cmd.debug('text="detrend cmd started on %s"' % (visit))
-            doDetrend(target, rerun, visit)
+            doDetrend(target, self.CALIB, rerun, visit)
 
         fullPath = imgPath(butler, visit, arm)
         cmd.inform(f"detrend={fullPath}")
@@ -134,7 +140,7 @@ class DrpCmd(object):
         """load butler. """
         if self.butler is None:
             try:
-                butler = dafPersist.Butler(os.path.join(self.target, 'rerun', self.rerun, 'detrend'))
+                butler = dafPersist.Butler(os.path.join(self.target, 'rerun', self.rerun))
             except Exception as e:
                 self.actor.logger.warning('text=%s' % self.actor.strTraceback(e))
                 self.actor.logger.warning('butler could not be instantiated, might be a fresh one')
