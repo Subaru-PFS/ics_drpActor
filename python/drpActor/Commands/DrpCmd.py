@@ -171,6 +171,7 @@ class DrpCmd(object):
             last = allDf.query(f'visit=={allDf.visit.max()}').sort_values('cobraId')
             fluxGradient = df.centerFlux.to_numpy() - last.centerFlux.to_numpy()
             keepMoving = fluxGradient < 0
+            keepMoving = np.logical_and(last.keepMoving, keepMoving).to_numpy()
             df['fluxGradient'] = fluxGradient
             df['keepMoving'] = keepMoving
             allDf = pd.concat([allDf, df]).reset_index(drop=True)
@@ -178,6 +179,6 @@ class DrpCmd(object):
 
         cmd.finish(f'fpsDotData={self.filepath}')
 
-    def startDotLoop(self):
+    def startDotLoop(self, cmd):
         self.doStartLoop = True
         cmd.finish('text="starting do loop, run cockroaches, run ! "')
