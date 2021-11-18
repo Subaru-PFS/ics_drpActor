@@ -14,6 +14,7 @@ def doDetrend(target, CALIB, rerun, visit):
 
     cmd = f"detrend.py {target} -j 2 --calib  {target}/{CALIB} --rerun {rerun} --id visit={visit} --no-versions "
     isr = ' '.join(['-c'] + [f'isr.{key}={str(val)}' for key, val in config.items()])
+    isr += ' repair.doCosmicRay=False'
     cmd += isr
     t0 = time.time()
     os.system(cmd)
