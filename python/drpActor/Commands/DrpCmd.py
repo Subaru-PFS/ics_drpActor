@@ -1,5 +1,5 @@
 import drpActor.detrend as detrend
-import drpActor.utils.cockroaches as cockroaches
+import drpActor.utils.dotroaches as dotroaches
 import lsst.daf.persistence as dafPersist
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
@@ -13,7 +13,7 @@ import pandas as pd
 import numpy as np
 
 reload(detrend)
-reload(cockroaches)
+reload(dotroaches)
 
 
 class DrpCmd(object):
@@ -157,11 +157,11 @@ class DrpCmd(object):
 
         dataId = dict(visit=visit, arm="r", spectrograph=1)
         calexp = self.butler.get('calexp', dataId)
-        df = cockroaches.robustFluxEstimation(calexp.image.array)
+        df = dotroaches.robustFluxEstimation(calexp.image.array)
         df['visit'] = visit
 
         if self.doStartLoop:
-            filename = f'cockroaches{str(visit).zfill(6)}.csv'
+            filename = f'dotroaches{str(visit).zfill(6)}.csv'
             self.filepath = os.path.join('.', filename)
             df.to_csv(self.filepath)
             self.doStartLoop = False
@@ -181,4 +181,4 @@ class DrpCmd(object):
 
     def startDotLoop(self, cmd):
         self.doStartLoop = True
-        cmd.finish('text="starting do loop, run cockroaches, run ! "')
+        cmd.finish('text="starting do loop, run dotroaches, run ! "')
