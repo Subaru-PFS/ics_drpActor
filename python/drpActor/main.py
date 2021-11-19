@@ -23,36 +23,13 @@ def _monkeyPatchIncremental():
 
 _monkeyPatchIncremental()
 
-import os
 import threading
 
 from actorcore.Actor import Actor
-from ics.utils.sps.spectroIds import getSite, SpectroIds
+from drpActor.utils.engine import DrpEngine
+from drpActor.utils.files import CCDFile
+from ics.utils.sps.spectroIds import getSite
 from twisted.internet import reactor
-
-
-class CCDFile(object):
-    fromArmNum = dict([(v, k) for k, v in SpectroIds.validArms.items()])
-
-    def __init__(self, root, night, filename):
-        self.root = root
-        self.night = night
-        self.filename = filename
-        self.visit = int(filename[4:10])
-        self.specNum = int(filename[10])
-        self.armNum = int(filename[11])
-        self.arm = CCDFile.fromArmNum[self.armNum]
-
-        self.ingested = False
-        self.detrended = False
-
-    @property
-    def filepath(self):
-        return os.path.join(self.root, self.night, 'sps', self.filename)
-
-    @property
-    def starPath(self):
-        return os.path.join(self.root, self.night, 'sps', f'{self.filename[:10]}*.fits')
 
 
 class DrpActor(Actor):
@@ -70,21 +47,32 @@ class DrpActor(Actor):
                        configFile=configFile, modelNames=['ccd_%s' % cam for cam in self.cams] + ['sps'])
 
         self.everConnected = False
-        self.exposureBuffer = []
 
     def connectionMade(self):
         """Called when the actor connection has been established: wire in callbacks."""
-
         if self.everConnected is False:
             self.logger.info('attaching callbacks cams=%s' % (','.join(self.cams)))
 
             for cam in self.cams:
-                self.models['ccd_%s' % cam].keyVarDict['filepath'].addCallback(self.newFilepath, callNow=False)
+                self.models['ccd_%s' % cam].keyVarDict['filepath'].addCallback(self.ccdFilepath, callNow=False)
 
             self.models['sps'].keyVarDict['fileIds'].addCallback(self.spsFileIds, callNow=False)
+            self.engine = self.loadDrpEngine()
             self.everConnected = True
 
-    def newFilepath(self, keyvar):
+    def loadDrpEngine(self):
+        """ """
+        return DrpEngine(self, target=self.config.get(self.site, 'target').strip(),
+                         CALIB=self.config.get(self.site, 'CALIB').strip(),
+                         rerun=self.config.get(self.site, 'rerun').strip(),
+                         pfsConfigDir=self.config.get(self.site, 'pfsConfigDir').strip())
+
+    def reloadConfiguration(self, cmd):
+        """ reload butler"""
+        self.engine = self.loadDrpEngine()
+
+    def ccdFilepath(self, keyvar):
+        """ CCD Filepath callback"""
         try:
             [root, night, fname] = keyvar.getValue()
         except ValueError:
@@ -92,32 +80,20 @@ class DrpActor(Actor):
 
         self.logger.info(f'newfilepath: {root}, {night}, {fname}. threads={threading.active_count()}')
 
-        self.exposureBuffer.append(CCDFile(root, night, fname))
+        self.engine.addFile(CCDFile(root, night, fname))
         reactor.callLater(5, self.checkLeftOver)
 
-    def checkLeftOver(self):
-        pass
-
     def spsFileIds(self, keyvar):
-        # reactor.callLater(5, partial(self.callCommand, f'detrend visit={visit} arm={arm}'))
-
+        """ spsFileIds callback. """
         try:
             [visit, camList, camMask] = keyvar.getValue()
         except ValueError:
             return
 
-        # get exposure with same visit
-        files = [file for file in self.exposureBuffer if file.visit == visit]
-        if not files:
-            return
+        self.engine.isrRemoval(visit)
 
-        nights = list(set([file.night for file in files]))
-        for night in nights:
-            filesPerNight = [file for file in files if file.night == night]
-            for file in filesPerNight:
-                file.ingested = True
-            startPath = files[0].starPath
-            self.callCommand('ingest filepath=%s' % startPath)
+    def checkLeftOver(self):
+        pass
 
 
 def main():
