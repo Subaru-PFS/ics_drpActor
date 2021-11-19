@@ -18,6 +18,8 @@ class DrpEngine(object):
         self.pfsConfigDir = pfsConfigDir
 
         self.fileBuffer = []
+
+        self.ingestMode = 'copy' if self.actor.site == 'HILO' else 'link'
         self.doAutoDetrend = True
         self.butler = self.loadButler()
 
@@ -54,7 +56,8 @@ class DrpEngine(object):
         for file in filesPerNight:
             file.ingested = True
 
-        ingest.doIngest(filesPerNight[0].starPath, target=self.target, pfsConfigDir=self.pfsConfigDir)
+        ingest.doIngest(filesPerNight[0].starPath, target=self.target, pfsConfigDir=self.pfsConfigDir,
+                        mode=self.ingestMode)
 
     def isrRemoval(self, visit):
         """ Proceed with isr removal for that visit."""

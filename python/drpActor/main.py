@@ -33,7 +33,7 @@ from twisted.internet import reactor
 
 
 class DrpActor(Actor):
-    allSites = dict(L='LAM', S='SUBARU')
+    allSites = dict(L='LAM', S='SUBARU', Z='HILO')
 
     def __init__(self, name, productName=None, configFile=None, debugLevel=30):
         # This sets up the connections to/from the hub, the logger, and the twisted reactor.
