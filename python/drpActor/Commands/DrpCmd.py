@@ -1,18 +1,17 @@
 import os
 from importlib import reload
 
-import drpActor.detrend as detrend
 import drpActor.utils.dotroaches as dotroaches
 import lsst.daf.persistence as dafPersist
 import numpy as np
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 import pandas as pd
-from drpActor.detrend import doDetrend
-from drpActor.ingest import doIngest
+from drpActor.utils.detrend import doDetrend
+from drpActor.utils.ingest import doIngest
 from drpActor.utils import imgPath
 
-reload(detrend)
+
 reload(dotroaches)
 
 

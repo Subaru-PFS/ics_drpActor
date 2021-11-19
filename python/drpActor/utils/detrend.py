@@ -16,6 +16,7 @@ def doDetrend(target, CALIB, rerun, visit):
     isr = ' '.join(['-c'] + [f'isr.{key}={str(val)}' for key, val in config.items()])
     isr += ' repair.doCosmicRay=False'
     cmd += isr
+    logger.info(cmd)
     t0 = time.time()
     os.system(cmd)
     t1 = time.time()
