@@ -34,7 +34,7 @@ from twisted.internet import reactor
 
 
 class DrpActor(Actor):
-    allSites = dict(L='LAM', S='SUBARU')
+    allSites = dict(L='LAM', S='SUBARU', Z='SUBARU')
 
     def __init__(self, name, productName=None, configFile=None, debugLevel=30):
         # This sets up the connections to/from the hub, the logger, and the twisted reactor.
@@ -71,7 +71,7 @@ class DrpActor(Actor):
         # self.callCommand('process filepath=%s' % filepath)
         self.callCommand('ingest filepath=%s' % filepath)
         visit, arm = getInfo(filepath)
-        reactor.callLater(5, partial(self.callCommand, f'detrend visit={visit} arm={arm}'))
+        # reactor.callLater(5, partial(self.callCommand, f'detrend visit={visit} arm={arm}'))
 
 
 def main():
