@@ -1,5 +1,5 @@
 import drpActor.detrend as detrend
-import drpActor.utils.dotroaches as dotroaches
+# import drpActor.utils.dotroaches as dotroaches
 import lsst.daf.persistence as dafPersist
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
@@ -13,7 +13,7 @@ import pandas as pd
 import numpy as np
 
 reload(detrend)
-reload(dotroaches)
+# reload(dotroaches)
 
 
 class DrpCmd(object):
