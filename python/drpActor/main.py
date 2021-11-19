@@ -67,7 +67,7 @@ class DrpActor(Actor):
 
         Actor.__init__(self, name,
                        productName=productName,
-                       configFile=configFile, modelNames=['ccd_%s' % cam for cam in self.cams])
+                       configFile=configFile, modelNames=['ccd_%s' % cam for cam in self.cams] + ['sps'])
 
         self.everConnected = False
         self.exposureBuffer = []
