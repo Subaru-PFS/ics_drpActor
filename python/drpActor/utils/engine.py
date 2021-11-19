@@ -1,8 +1,12 @@
 import os
+from importlib import reload
 
 import drpActor.utils.detrend as detrend
 import drpActor.utils.ingest as ingest
 import lsst.daf.persistence as dafPersist
+
+reload(ingest)
+reload(detrend)
 
 
 class DrpEngine(object):
@@ -14,6 +18,7 @@ class DrpEngine(object):
         self.pfsConfigDir = pfsConfigDir
 
         self.fileBuffer = []
+        self.doAutoDetrend = True
         self.butler = self.loadButler()
 
     def addFile(self, file):
@@ -65,10 +70,11 @@ class DrpEngine(object):
             filesPerNight = [file for file in files if file.night == night]
             self.ingestPerNight(filesPerNight)
 
-        options = self.lookupMetaData(files[0])
-        detrend.doDetrend(self.target, self.CALIB, self.rerun, visit, **options)
+        if self.doAutoDetrend:
+            options = self.lookupMetaData(files[0])
+            detrend.doDetrend(self.target, self.CALIB, self.rerun, visit, **options)
 
-        self.genKeywordForDisplay()
+            self.genKeywordForDisplay()
 
     def genKeywordForDisplay(self):
         """ Generate detrend keyword for isr"""
