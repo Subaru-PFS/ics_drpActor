@@ -23,6 +23,8 @@ def _monkeyPatchIncremental():
 
 _monkeyPatchIncremental()
 
+import argparse
+import logging
 import threading
 
 from actorcore.Actor import Actor
@@ -35,7 +37,7 @@ from twisted.internet import reactor
 class DrpActor(Actor):
     allSites = dict(L='LAM', S='SUBARU', Z='HILO')
 
-    def __init__(self, name, productName=None, configFile=None, debugLevel=30):
+    def __init__(self, name, productName=None, configFile=None, logLevel=30):
         # This sets up the connections to/from the hub, the logger, and the twisted reactor.
         #
         specIds = list(range(1, 5))
@@ -97,8 +99,20 @@ class DrpActor(Actor):
 
 
 def main():
-    actor = DrpActor('drp', productName='drpActor')
-    actor.run()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', default=None, type=str, nargs='?',
+                        help='configuration file to use')
+    parser.add_argument('--logLevel', default=logging.INFO, type=int, nargs='?',
+                        help='logging level')
+    parser.add_argument('--name', default='drp', type=str, nargs='?',
+                        help='identity')
+    args = parser.parse_args()
+
+    theActor = DrpActor(args.name,
+                        productName='drpActor',
+                        configFile=args.config,
+                        logLevel=args.logLevel)
+    theActor.run()
 
 
 if __name__ == '__main__':
