@@ -1,18 +1,17 @@
-import drpActor.detrend as detrend
+import os
+from importlib import reload
+
 import drpActor.utils.dotroaches as dotroaches
 import lsst.daf.persistence as dafPersist
+import numpy as np
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
-import os
-import time
-from drpActor.detrend import doDetrend
-from drpActor.ingest import doIngest
-from drpActor.utils import imgPath, getInfo
-from importlib import reload
 import pandas as pd
-import numpy as np
+from drpActor.utils.detrend import doDetrend
+from drpActor.utils.ingest import doIngest
+from drpActor.utils import imgPath
 
-reload(detrend)
+
 reload(dotroaches)
 
 
@@ -34,7 +33,6 @@ class DrpCmd(object):
             ('status', '', self.status),
             ('ingest', '<filepath> [<target>]', self.ingest),
             ('detrend', '<visit> <arm> [<rerun>]', self.detrend),
-            ('process', '<filepath>  [<target>] [<rerun>]', self.process),
             ('startDotLoop', '', self.startDotLoop),
             ('processDotData', '', self.processDotData),
         ]
@@ -113,28 +111,6 @@ class DrpCmd(object):
 
         if doFinish:
             cmd.finish()
-
-    def process(self, cmd):
-        """Entirely process a single new exposure. """
-
-        cmdKeys = cmd.cmd.keywords
-        filepath = cmdKeys["filepath"].values[0]
-        target = cmdKeys["target"].values[0] if 'target' in cmdKeys else self.target
-        rerun = cmdKeys["rerun"].values[0] if 'rerun' in cmdKeys else self.rerun
-
-        visit, arm = getInfo(filepath)
-
-        self.ingest(cmd, doFinish=False)
-
-        t0 = time.time()
-        cmd.debug('text="detrend started on %s"' % (visit))
-        butler = dafPersist.Butler(os.path.join(target, 'rerun', rerun, 'detrend'))
-        if not imgPath(butler, visit, arm):
-            detrend.doDetrend(visit=visit, arm=arm, target=target, rerun=rerun)
-        t1 = time.time()
-
-        fullPath = imgPath(butler, visit, arm)
-        cmd.finish(f"detrend={fullPath}; text='ran in {t1 - t0:0.4f}s'")
 
     def loadButler(self):
         """load butler. """

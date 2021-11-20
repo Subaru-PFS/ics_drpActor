@@ -5,17 +5,19 @@ import time
 from lsst.obs.pfs.detrendTask import DetrendTask
 
 
-def doDetrend(target, CALIB, rerun, visit):
+def doDetrend(target, CALIB, rerun, visit, windowed=False):
     logger = logging.getLogger('detrend')
     config = dict(doBias=True,
                   doDark=True,
                   doFlat=False,
-                  doDefect=False)
+                  doDefect=False,
+                  windowed=windowed)
 
     cmd = f"detrend.py {target} -j 2 --calib  {target}/{CALIB} --rerun {rerun} --id visit={visit} --no-versions "
     isr = ' '.join(['-c'] + [f'isr.{key}={str(val)}' for key, val in config.items()])
     isr += ' repair.doCosmicRay=False'
     cmd += isr
+    logger.info(cmd)
     t0 = time.time()
     os.system(cmd)
     t1 = time.time()

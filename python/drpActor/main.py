@@ -23,18 +23,17 @@ def _monkeyPatchIncremental():
 
 _monkeyPatchIncremental()
 
-import os
 import threading
-from functools import partial
 
 from actorcore.Actor import Actor
-from drpActor.utils import getInfo
-from pfs.utils.spectroIds import getSite
+from drpActor.utils.engine import DrpEngine
+from drpActor.utils.files import CCDFile
+from ics.utils.sps.spectroIds import getSite
 from twisted.internet import reactor
 
 
 class DrpActor(Actor):
-    allSites = dict(L='LAM', S='SUBARU')
+    allSites = dict(L='LAM', S='SUBARU', Z='HILO')
 
     def __init__(self, name, productName=None, configFile=None, debugLevel=30):
         # This sets up the connections to/from the hub, the logger, and the twisted reactor.
@@ -45,21 +44,35 @@ class DrpActor(Actor):
 
         Actor.__init__(self, name,
                        productName=productName,
-                       configFile=configFile, modelNames=['ccd_%s' % cam for cam in self.cams])
+                       configFile=configFile, modelNames=['ccd_%s' % cam for cam in self.cams] + ['sps'])
 
         self.everConnected = False
 
     def connectionMade(self):
         """Called when the actor connection has been established: wire in callbacks."""
-
         if self.everConnected is False:
             self.logger.info('attaching callbacks cams=%s' % (','.join(self.cams)))
 
             for cam in self.cams:
-                self.models['ccd_%s' % cam].keyVarDict['filepath'].addCallback(self.newFilepath, callNow=False)
+                self.models['ccd_%s' % cam].keyVarDict['filepath'].addCallback(self.ccdFilepath, callNow=False)
+
+            self.models['sps'].keyVarDict['fileIds'].addCallback(self.spsFileIds, callNow=False)
+            self.engine = self.loadDrpEngine()
             self.everConnected = True
 
-    def newFilepath(self, keyvar):
+    def loadDrpEngine(self):
+        """ """
+        return DrpEngine(self, target=self.config.get(self.site, 'target').strip(),
+                         CALIB=self.config.get(self.site, 'CALIB').strip(),
+                         rerun=self.config.get(self.site, 'rerun').strip(),
+                         pfsConfigDir=self.config.get(self.site, 'pfsConfigDir').strip())
+
+    def reloadConfiguration(self, cmd):
+        """ reload butler"""
+        self.engine = self.loadDrpEngine()
+
+    def ccdFilepath(self, keyvar):
+        """ CCD Filepath callback"""
         try:
             [root, night, fname] = keyvar.getValue()
         except ValueError:
@@ -67,11 +80,20 @@ class DrpActor(Actor):
 
         self.logger.info(f'newfilepath: {root}, {night}, {fname}. threads={threading.active_count()}')
 
-        filepath = os.path.join(root, night, 'sps', fname)
-        # self.callCommand('process filepath=%s' % filepath)
-        self.callCommand('ingest filepath=%s' % filepath)
-        visit, arm = getInfo(filepath)
-        reactor.callLater(5, partial(self.callCommand, f'detrend visit={visit} arm={arm}'))
+        self.engine.addFile(CCDFile(root, night, fname))
+        reactor.callLater(5, self.checkLeftOver)
+
+    def spsFileIds(self, keyvar):
+        """ spsFileIds callback. """
+        try:
+            [visit, camList, camMask] = keyvar.getValue()
+        except ValueError:
+            return
+
+        self.engine.isrRemoval(visit)
+
+    def checkLeftOver(self):
+        pass
 
 
 def main():
