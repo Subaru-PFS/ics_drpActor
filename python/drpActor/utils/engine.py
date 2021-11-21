@@ -2,26 +2,43 @@ import os
 from importlib import reload
 
 import drpActor.utils.detrend as detrend
+import drpActor.utils.dotroaches as dotroaches
 import drpActor.utils.ingest as ingest
+import drpActor.utils.reduce as reduce
 import lsst.daf.persistence as dafPersist
 
 reload(ingest)
 reload(detrend)
+reload(reduce)
+reload(dotroaches)
 
 
 class DrpEngine(object):
-    def __init__(self, actor, target, CALIB, rerun, pfsConfigDir):
+    def __init__(self, actor, target, CALIB, rerun, pfsConfigDir, outputDir):
         self.actor = actor
         self.target = target
         self.CALIB = CALIB
         self.rerun = rerun
         self.pfsConfigDir = pfsConfigDir
+        self.outputDir = outputDir
 
         self.fileBuffer = []
 
         self.ingestMode = 'copy' if self.actor.site == 'HILO' else 'link'
         self.doAutoDetrend = True
+        self.doAutoReduce = False
+        self.dotRoaches = None
+
         self.butler = self.loadButler()
+
+    @classmethod
+    def fromConfigFile(cls, actor):
+        target = actor.config.get(actor.site, 'target').strip()
+        CALIB = actor.config.get(actor.site, 'CALIB').strip()
+        rerun = actor.config.get(actor.site, 'rerun').strip()
+        pfsConfigDir = actor.config.get(actor.site, 'pfsConfigDir').strip()
+        outputDir = actor.config.get(actor.site, 'outputDir').strip()
+        return cls(actor, target, CALIB, rerun, pfsConfigDir, outputDir)
 
     def addFile(self, file):
         """ Add new file into the buffer. """
@@ -48,11 +65,14 @@ class DrpEngine(object):
             except:
                 return False
 
-        md = self.butler.get('raw_md', visit=file.visit, arm=file.arm, spectrograph=file.specNum)
+        md = self.butler.get('raw_md', **file.dataId)
         return dict(windowed=isWindowed(md))
 
     def ingestPerNight(self, filesPerNight):
         """ ingest multiple files at the same time."""
+        if all([file.ingested for file in filesPerNight]):
+            return
+
         for file in filesPerNight:
             file.ingested = True
 
@@ -69,6 +89,7 @@ class DrpEngine(object):
         nights = list(set([file.night for file in files]))
         [visit] = list(set([file.visit for file in files]))
 
+        # seems unlikely to have separate night for one visit for still possible.
         for night in nights:
             filesPerNight = [file for file in files if file.night == night]
             self.ingestPerNight(filesPerNight)
@@ -76,10 +97,17 @@ class DrpEngine(object):
         if self.doAutoDetrend:
             options = self.lookupMetaData(files[0])
             detrend.doDetrend(self.target, self.CALIB, self.rerun, visit, **options)
+            self.genFilesKeywordForDisplay()
 
-            self.genKeywordForDisplay()
+        if self.doAutoReduce:
+            options = self.lookupMetaData(files[0])
+            reduce.doReduceExposure(self.target, self.CALIB, self.rerun, visit, **options)
 
-    def genKeywordForDisplay(self):
+        if self.dotRoaches is not None:
+            self.dotRoaches.runAway(files)
+            self.actor.bcast.inform(f'dotRoaches={self.dotRoaches.filepath}')
+
+    def genFilesKeywordForDisplay(self):
         """ Generate detrend keyword for isr"""
         toRemove = []
         for file in self.fileBuffer:
@@ -94,3 +122,21 @@ class DrpEngine(object):
 
         for file in toRemove:
             self.fileBuffer.remove(file)
+
+    def startDotLoop(self, cmd):
+        """ Starting dotroaches loop, deactivating autodetrend. """
+        self.doAutoDetrend = False
+        self.doAutoReduce = True
+        self.dotRoaches = dotroaches.DotRoaches(self)
+
+        cmd.finish('text="starting loop... Run dotroaches, run ! "')
+
+    def stopDotLoop(self, cmd):
+        """ stopping dotroaches loop, reactivating autodetrend. """
+        self.dotRoaches.finish()
+
+        self.dotRoaches = None
+        self.doAutoDetrend = True
+        self.doAutoReduce = False
+
+        cmd.finish('text="ending dotroaches loop"')

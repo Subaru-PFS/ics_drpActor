@@ -63,11 +63,8 @@ class DrpActor(Actor):
             self.everConnected = True
 
     def loadDrpEngine(self):
-        """ """
-        return DrpEngine(self, target=self.config.get(self.site, 'target').strip(),
-                         CALIB=self.config.get(self.site, 'CALIB').strip(),
-                         rerun=self.config.get(self.site, 'rerun').strip(),
-                         pfsConfigDir=self.config.get(self.site, 'pfsConfigDir').strip())
+        """ Return DrpEngine object from config file."""
+        return DrpEngine.fromConfigFile(self)
 
     def reloadConfiguration(self, cmd):
         """ reload butler"""

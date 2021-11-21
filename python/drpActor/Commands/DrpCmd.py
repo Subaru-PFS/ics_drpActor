@@ -7,10 +7,9 @@ import numpy as np
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 import pandas as pd
+from drpActor.utils import imgPath
 from drpActor.utils.detrend import doDetrend
 from drpActor.utils.ingest import doIngest
-from drpActor.utils import imgPath
-
 
 reload(dotroaches)
 
@@ -34,7 +33,7 @@ class DrpCmd(object):
             ('ingest', '<filepath> [<target>]', self.ingest),
             ('detrend', '<visit> <arm> [<rerun>]', self.detrend),
             ('startDotLoop', '', self.startDotLoop),
-            ('processDotData', '', self.processDotData),
+            ('stopDotLoop', '', self.stopDotLoop),
         ]
 
         # Define typed command arguments for the above commands.
@@ -126,35 +125,8 @@ class DrpCmd(object):
 
         return self.butler
 
-    def processDotData(self, cmd):
-        """startFpsLoop. """
-        cmdKeys = cmd.cmd.keywords
-        visit = self.lastVisit
-
-        dataId = dict(visit=visit, arm="r", spectrograph=1)
-        calexp = self.butler.get('calexp', dataId)
-        df = dotroaches.robustFluxEstimation(calexp.image.array)
-        df['visit'] = visit
-
-        if self.doStartLoop:
-            filename = f'dotroaches{str(visit).zfill(6)}.csv'
-            self.filepath = os.path.join('.', filename)
-            df.to_csv(self.filepath)
-            self.doStartLoop = False
-
-        else:
-            allDf = pd.read_csv(self.filepath, index_col=0)
-            last = allDf.query(f'visit=={allDf.visit.max()}').sort_values('cobraId')
-            fluxGradient = df.centerFlux.to_numpy() - last.centerFlux.to_numpy()
-            keepMoving = fluxGradient < 0
-            keepMoving = np.logical_and(last.keepMoving, keepMoving).to_numpy()
-            df['fluxGradient'] = fluxGradient
-            df['keepMoving'] = keepMoving
-            allDf = pd.concat([allDf, df]).reset_index(drop=True)
-            allDf.to_csv(self.filepath)
-
-        cmd.finish(f'fpsDotData={self.filepath}')
-
     def startDotLoop(self, cmd):
-        self.doStartLoop = True
-        cmd.finish('text="starting do loop, run dotroaches, run ! "')
+        self.actor.engine.startDotLoop(cmd)
+
+    def stopDotLoop(self, cmd):
+        self.actor.engine.stopDotLoop(cmd)
