@@ -105,7 +105,7 @@ class DrpEngine(object):
 
         if self.dotRoaches is not None:
             self.dotRoaches.runAway(files)
-            self.actor.bcast.inform(f'dotRoaches={self.dotRoaches.filepath}')
+            self.dotRoaches.status(cmd=self.actor.bcast)
 
     def genFilesKeywordForDisplay(self):
         """ Generate detrend keyword for isr"""
@@ -143,4 +143,4 @@ class DrpEngine(object):
         """ """
         for visit in list(set([file.visit for file in self.fileBuffer])):
             cmd.inform(f'text="found visit:{visit} in leftovers"')
-            self.isrRemoval(visit)
+            #self.isrRemoval(visit)

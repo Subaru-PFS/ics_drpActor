@@ -32,6 +32,7 @@ class DrpCmd(object):
             ('detrend', '<visit> <arm> [<rerun>]', self.detrend),
             ('startDotLoop', '', self.startDotLoop),
             ('stopDotLoop', '', self.stopDotLoop),
+            ('processDotData', '', self.processDotData),
             ('checkLeftOvers', '', self.checkLeftOvers)
         ]
 
@@ -128,6 +129,11 @@ class DrpCmd(object):
         """ Start dot loop. """
         self.actor.engine.startDotLoop(cmd)
         cmd.finish('text="starting loop... Run dotroaches, run ! "')
+
+    def processDotData(self, cmd):
+        """ Data is actually processed on the fly, just basically generate status. """
+        self.actor.engine.dotRoaches.status(cmd)
+        cmd.finish()
 
     def stopDotLoop(self, cmd):
         """ Stop dot loop. """

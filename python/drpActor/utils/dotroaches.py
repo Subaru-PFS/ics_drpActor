@@ -63,7 +63,7 @@ class DotRoaches(object):
         fluxPerCobra['visit'] = visit
 
         if self.filepath is None:
-            self.filepath = os.path.join(self.engine.outputDir, 'dotroaches', f'{visit}.csv')
+            self.filepath = self.genFilePath(visit)
             cobraMotion = self.initialise(fluxPerCobra)
         else:
             cobraMotion = self.newCobraIteration(fluxPerCobra)
@@ -117,6 +117,29 @@ class DotRoaches(object):
         """
         return fluxPerCobra.set_index('cobraId').reindex(disabled.cobraId).dropna().sum().flux
 
+    def genFilePath(self, visit0):
+        """ """
+        filepath = os.path.join(self.engine.outputDir, 'dotroaches', f'{visit0}.csv')
+        current = os.path.join(self.engine.outputDir, 'dotroaches', f'current.csv')
+
+        try:
+            os.symlink(filepath, current)
+        except FileExistsError:
+            os.remove(current)
+            return self.genFilePath(visit0)
+
+        return filepath
+
     def finish(self):
         """ """
         pass
+
+    def status(self, cmd):
+        """ """
+        cmd.inform(f'dotRoaches={self.filepath}')
+
+        allMotions = pd.read_csv(self.filepath, index_col=0)
+        lastVisit = allMotions.visit.max()
+        lastMotion = allMotions.set_index('visit').loc[lastVisit].sort_values('cobraId').reset_index()
+        keepMoving = lastMotion[lastMotion.keepMoving]
+        cmd.inform(f'text="visit={lastVisit}, nCobraKeepMoving={len(keepMoving)}"')
