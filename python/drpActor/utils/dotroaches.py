@@ -1,8 +1,10 @@
-import numpy as np
 import os
+import pathlib
+
+import numpy as np
 import pandas as pd
+from ics.cobraCharmer import pfiDesign
 from pfs.utils.fiberids import FiberIds
-from scipy.ndimage import median_filter
 
 gfm = FiberIds()
 gfmDf = pd.DataFrame(gfm.data)
@@ -10,75 +12,111 @@ gfmDf = pd.DataFrame(gfm.data)
 scienceFiberId = np.arange(2394) + 1
 scienceFiber = gfmDf.set_index('scienceFiberId').loc[scienceFiberId].reset_index()
 
-spec1 = scienceFiber.query('spectrographId==1').sort_values('fiberId')
-fiberIds = spec1.fiberId.to_numpy()
-cobraIds = scienceFiber.set_index('fiberId').loc[fiberIds].cobraId.to_numpy()
+pfi = pfiDesign.PFIDesign(fileName=
+pathlib.Path(
+    '/software/devel/cpl/pfs_instdata/data/pfi/modules/ALL/ALL_final_20210920_mm.xml'))
+
+disabledOrBrokenCobras = pfi.status != pfi.COBRA_OK_MASK
+disabled = scienceFiber[disabledOrBrokenCobras].sort_values('cobraId')
 
 
-def robustRms(array):
-    """Calculate a robust RMS of the array using the inter-quartile range
+class DotRoaches(object):
+    """ Placeholder to handle dotRoaches loop"""
 
-    Uses the standard conversion of IQR to RMS for a Gaussian.
+    def __init__(self, engine):
+        self.filepath = None
+        self.engine = engine
 
-    Parameters
-    ----------
-    array : `numpy.ndarray`
-        Array for which to calculate RMS.
+    def collectFiberData(self, files):
+        """ retrieve pfsArm from butler and return flux estimation for each fiber.
+        :param files:
+        :return:
+        """
+        fluxPerFiber = []
 
-    Returns
-    -------
-    rms : `float`
-        Robust RMS.
-    """
-    lq, uq = np.percentile(array, (25.0, 75.0))
-    return 0.741 * (uq - lq)
+        for file in files:
+            pfsArm = self.engine.butler.get('pfsArm', **file.dataId)
+            fluxPerFiber.append(pd.DataFrame(dict(flux=pfsArm.flux.sum(axis=1), fiberId=pfsArm.fiberId)))
 
+        return pd.concat(fluxPerFiber).groupby('fiberId').sum().reset_index()
 
-def robustSigmaClip(array, sigma=3):
-    """Calculate a robust RMS of the array using the inter-quartile range"""
-    centered = array - np.median(array)
-    rms = robustRms(centered)
-    mask = np.logical_and(centered > -sigma * rms, centered < sigma * rms)
-    return ~mask
+    def runAway(self, files):
+        """
+        :param files:
+        :return:
+        """
 
+        def fiberToCobra(fluxPerFiber):
+            """ convert flux per fiber as flux per cobra.
+            :param fluxPerFiber: 
+            :return: 
+            """""
+            fluxPerCobra = gfmDf.set_index('fiberId').loc[fluxPerFiber.fiberId][['cobraId']]
+            fluxPerCobra['flux'] = fluxPerFiber.flux.to_numpy()
+            fluxPerCobra = fluxPerCobra[fluxPerCobra.cobraId != FiberIds.MISSING_VALUE]
+            return fluxPerCobra.sort_values('cobraId').reset_index()
 
-def boxCarExtraction(im, fiberTraces):
-    """Calculate a robust RMS of the array using the inter-quartile range"""
-    yc = np.arange(fiberTraces.shape[1], dtype='int64')
-    ycc = np.tile(yc, (fiberTraces.shape[2], 1)).transpose()
+        fluxPerFiber = self.collectFiberData(files)
+        fluxPerCobra = fiberToCobra(fluxPerFiber)
 
-    fluxes = []
+        [visit] = list(set([file.visit for file in files]))
+        fluxPerCobra['visit'] = visit
 
-    for i in range(fiberTraces.shape[0]):
-        fluxes.append(im[ycc, fiberTraces[i]].sum(axis=1))
+        if self.filepath is None:
+            self.filepath = os.path.join(self.engine.outputDir, 'dotroaches', f'{visit}.csv')
+            cobraMotion = self.initialise(fluxPerCobra)
+        else:
+            cobraMotion = self.newCobraIteration(fluxPerCobra)
 
-    return np.array(fluxes)
+        cobraMotion.to_csv(self.filepath)
 
+    def initialise(self, fluxPerCobra):
+        """ initalise cobra file.
+        :param fluxPerCobra:
+        :return:
+        """
+        self.normFactor = self.fluxFromDisabledCobra(fluxPerCobra)
 
-def robustFluxEstimation(im, nRows=1000, medWindowSize=41):
-    """Calculate a robust RMS of the array using the inter-quartile range"""
-    fiberTraces = np.load('/data/drp/fpsDotLoop/fiberTraces.npy')
-    centerRow = fiberTraces.shape[1] / 2
-    flux = boxCarExtraction(im, fiberTraces)
-    box = flux[:, int(round(centerRow - nRows / 2)):int(round(centerRow + nRows / 2))]
-    data = []
+        fluxPerCobra['fluxNorm'] = fluxPerCobra.flux
+        fluxPerCobra['fluxGradient'] = [np.nan] * len(fluxPerCobra)
+        fluxPerCobra['keepMoving'] = np.ones(len(fluxPerCobra), dtype=bool)
 
-    for i, fiber in enumerate(fiberIds):
-        noise = box[i] - median_filter(box[i], medWindowSize)
-        mask = robustSigmaClip(noise, sigma=3)
+        return fluxPerCobra
 
-        noiseLevel = np.std(noise[~mask])
-        meanSignal = np.mean(box[i][~mask])
-        centerFlux = np.sum(box[i][~mask])
+    def newCobraIteration(self, fluxPerCobra):
+        """  calculate flux gradient and return full cobra motion file.
+        :param fluxPerCobra:
+        :return:
+        """
+        # Calculate norm flux from disabled cobras
+        normFactor = self.normFactor / self.fluxFromDisabledCobra(fluxPerCobra)
+        fluxPerCobra['fluxNorm'] = fluxPerCobra.flux * normFactor
 
-        data.append((centerFlux, noiseLevel, meanSignal))
+        # reload file
+        allMotions = pd.read_csv(self.filepath, index_col=0)
+        last = allMotions.set_index('visit').loc[allMotions.visit.max()].sort_values('cobraId').reset_index()
 
-    df = pd.DataFrame(data, columns=['centerFlux', 'noiseLevel', 'meanSignal'])
-    df['totalFlux'] = flux[:, 100:-100].sum(axis=1)
-    df['fiberId'] = fiberIds
-    df['cobraId'] = cobraIds
-    df['fluxGradient'] = np.nan * len(df)
-    df['keepMoving'] = np.ones(len(df), dtype=bool)
+        # calculate flux gradient
+        newFlux = fluxPerCobra.fluxNorm.to_numpy()
+        lastFlux = last.fluxNorm.to_numpy()
+        fluxPerCobra['fluxGradient'] = newFlux - lastFlux
 
-    return df.sort_values('cobraId')
+        # assess which cobra should keep moving
+        keepMoving = fluxPerCobra.fluxGradient < 0
+        keepMoving = np.logical_and(last.keepMoving, keepMoving).to_numpy()
+        fluxPerCobra['keepMoving'] = keepMoving
 
+        # append to file
+        allMotions = pd.concat([allMotions, fluxPerCobra]).reset_index(drop=True)
+        return allMotions
+
+    def fluxFromDisabledCobra(self, fluxPerCobra):
+        """ Calculate flux from disabled cobra
+        :param fluxPerCobra:
+        :return:
+        """
+        return fluxPerCobra.set_index('cobraId').reindex(disabled.cobraId).dropna().sum().flux
+
+    def finish(self):
+        """ """
+        pass
