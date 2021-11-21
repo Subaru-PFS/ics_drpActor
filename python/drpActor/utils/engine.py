@@ -129,8 +129,6 @@ class DrpEngine(object):
         self.doAutoReduce = True
         self.dotRoaches = dotroaches.DotRoaches(self)
 
-        cmd.finish('text="starting loop... Run dotroaches, run ! "')
-
     def stopDotLoop(self, cmd):
         """ stopping dotroaches loop, reactivating autodetrend. """
         self.dotRoaches.finish()
@@ -139,4 +137,10 @@ class DrpEngine(object):
         self.doAutoDetrend = True
         self.doAutoReduce = False
 
-        cmd.finish('text="ending dotroaches loop"')
+        self.actor.callCommand('checkLeftOvers')
+
+    def checkLeftOvers(self, cmd):
+        """ """
+        for visit in list(set([file.visit for file in self.fileBuffer])):
+            cmd.inform(f'text="found visit:{visit} in leftovers"')
+            self.isrRemoval(visit)

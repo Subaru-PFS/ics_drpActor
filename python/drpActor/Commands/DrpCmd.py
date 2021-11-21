@@ -3,10 +3,8 @@ from importlib import reload
 
 import drpActor.utils.dotroaches as dotroaches
 import lsst.daf.persistence as dafPersist
-import numpy as np
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
-import pandas as pd
 from drpActor.utils import imgPath
 from drpActor.utils.detrend import doDetrend
 from drpActor.utils.ingest import doIngest
@@ -34,6 +32,7 @@ class DrpCmd(object):
             ('detrend', '<visit> <arm> [<rerun>]', self.detrend),
             ('startDotLoop', '', self.startDotLoop),
             ('stopDotLoop', '', self.stopDotLoop),
+            ('checkLeftOvers', '', self.checkLeftOvers)
         ]
 
         # Define typed command arguments for the above commands.
@@ -126,7 +125,16 @@ class DrpCmd(object):
         return self.butler
 
     def startDotLoop(self, cmd):
+        """ Start dot loop. """
         self.actor.engine.startDotLoop(cmd)
+        cmd.finish('text="starting loop... Run dotroaches, run ! "')
 
     def stopDotLoop(self, cmd):
+        """ Stop dot loop. """
         self.actor.engine.stopDotLoop(cmd)
+        cmd.finish('text="ending dotroaches loop"')
+
+    def checkLeftOvers(self, cmd):
+        """ Check for non-reduced files."""
+        self.actor.engine.checkLeftOvers(cmd)
+        cmd.finish(f'text="len(fileBuffer)={len(self.actor.engine.fileBuffer)}"')

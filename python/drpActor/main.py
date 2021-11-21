@@ -26,6 +26,7 @@ _monkeyPatchIncremental()
 import argparse
 import logging
 import threading
+from functools import partial
 
 from actorcore.Actor import Actor
 from drpActor.utils.engine import DrpEngine
@@ -78,9 +79,10 @@ class DrpActor(Actor):
             return
 
         self.logger.info(f'newfilepath: {root}, {night}, {fname}. threads={threading.active_count()}')
-
         self.engine.addFile(CCDFile(root, night, fname))
-        reactor.callLater(5, self.checkLeftOver)
+
+        if False:
+            reactor.callLater(5, partial(self.callCommand, 'checkLeftOvers'))
 
     def spsFileIds(self, keyvar):
         """ spsFileIds callback. """
@@ -90,9 +92,6 @@ class DrpActor(Actor):
             return
 
         self.engine.isrRemoval(visit)
-
-    def checkLeftOver(self):
-        pass
 
 
 def main():
