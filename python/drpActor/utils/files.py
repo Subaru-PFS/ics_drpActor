@@ -1,5 +1,6 @@
-from ics.utils.sps.spectroIds import SpectroIds
 import os
+
+from ics.utils.sps.spectroIds import SpectroIds
 
 
 class CCDFile(object):
@@ -25,3 +26,7 @@ class CCDFile(object):
     @property
     def starPath(self):
         return os.path.join(self.root, self.night, 'sps', f'{self.filename[:10]}*.fits')
+
+    @property
+    def dataId(self):
+        return dict(visit=self.visit, arm=self.arm, spectrograph=self.specNum)
