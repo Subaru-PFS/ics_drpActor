@@ -17,7 +17,7 @@ pathlib.Path(
     '/software/devel/cpl/pfs_instdata/data/pfi/modules/ALL/ALL_final_20210920_mm.xml'))
 
 disabledOrBrokenCobras = pfi.status != pfi.COBRA_OK_MASK
-disabled = scienceFiber[disabledOrBrokenCobras].sort_values('cobraId')
+disabled = scienceFiber.sort_values('cobraId')[disabledOrBrokenCobras]
 
 
 class DotRoaches(object):
