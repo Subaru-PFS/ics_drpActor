@@ -72,12 +72,16 @@ class DrpEngine(object):
         for file in filesPerNight:
             file.ingested = True
 
-        cmd = cmdList.Ingest(self.target, filesPerNight[0].starPath, pfsConfigDir=self.pfsConfigDir,
-                             mode=self.ingestMode)
-        return cmd.run()
+        return cmdList.Ingest(self.target, filesPerNight[0].starPath, pfsConfigDir=self.pfsConfigDir,
+                              mode=self.ingestMode)
 
     def isrRemoval(self, visit):
         """ Proceed with isr removal for that visit."""
+
+        def genCommandStatus(cmd, status, statusStr, timing):
+            """ Just generate simple status keyword for each visit."""
+            self.actor.bcast.inform(f'{cmd}Status={visit},{status},{statusStr},{timing}')
+
         # get exposure with same visit
         files = [file for file in self.fileBuffer if file.visit == visit]
         if not files:
@@ -89,21 +93,19 @@ class DrpEngine(object):
         # seems unlikely to have separate night for one visit for still possible.
         for night in nights:
             filesPerNight = [file for file in files if file.night == night]
-            status, timing = self.ingestPerNight(filesPerNight)
-            self.actor.bcast(f'ingest={visit},{status},{timing}')
+            cmd = self.ingestPerNight(filesPerNight)
+            genCommandStatus('ingest', *cmd.run())
 
         if self.doAutoDetrend:
             options = self.lookupMetaData(files[0])
             cmd = cmdList.Detrend(self.target, self.CALIB, self.rerun, visit, **options)
-            status, timing = cmd.run()
-            self.actor.bcast(f'detrend={visit},{status},{timing}')
+            genCommandStatus('detrend', *cmd.run())
             self.genFilesKeywordForDisplay()
 
         if self.doAutoReduce:
             options = self.lookupMetaData(files[0])
             cmd = cmdList.ReduceExposure(self.target, self.CALIB, self.rerun, visit, **options)
-            status, timing = cmd.run()
-            self.actor.bcast(f'reduceExposure={visit},{status},{timing}')
+            genCommandStatus('reduceExposure', *cmd.run())
 
         if self.dotRoaches is not None:
             self.dotRoaches.runAway(files)
