@@ -1,15 +1,14 @@
 import os
 from importlib import reload
 
+import drpActor.utils.cmdList as cmdList
 import drpActor.utils.dotroaches as dotroaches
 import lsst.daf.persistence as dafPersist
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
-from drpActor.utils import imgPath
-from drpActor.utils.detrend import doDetrend
-from drpActor.utils.ingest import doIngest
 
 reload(dotroaches)
+reload(cmdList)
 
 
 class DrpCmd(object):
@@ -17,8 +16,6 @@ class DrpCmd(object):
         # This lets us access the rest of the actor.
         self.actor = actor
         self.butler = None
-        self.doStartLoop = False
-        self.lastVisit = None
 
         # Declare the commands we implement. When the actor is started
         # these are registered with the parser, which will call the
@@ -28,8 +25,9 @@ class DrpCmd(object):
         self.vocab = [
             ('ping', '', self.ping),
             ('status', '', self.status),
-            ('ingest', '<filepath> [<target>]', self.ingest),
+            ('ingest', '<filepath>', self.ingest),
             ('detrend', '<visit> <arm> [<rerun>]', self.detrend),
+
             ('startDotLoop', '', self.startDotLoop),
             ('stopDotLoop', '', self.stopDotLoop),
             ('processDotData', '', self.processDotData),
@@ -38,7 +36,6 @@ class DrpCmd(object):
 
         # Define typed command arguments for the above commands.
         self.keys = keys.KeysDictionary("drp_drp", (1, 1),
-                                        keys.Key("target", types.String(), help="target drp folder for ingest"),
                                         keys.Key("rerun", types.String(), help="rerun drp folder"),
                                         keys.Key("filepath", types.String(), help="Raw FITS File path"),
                                         keys.Key("arm", types.String(), help="arm"),
@@ -46,20 +43,8 @@ class DrpCmd(object):
                                         )
 
     @property
-    def target(self):
-        return self.actor.config.get(self.actor.site, 'target').strip()
-
-    @property
-    def CALIB(self):
-        return self.actor.config.get(self.actor.site, 'CALIB').strip()
-
-    @property
-    def rerun(self):
-        return self.actor.config.get(self.actor.site, 'rerun').strip()
-
-    @property
-    def pfsConfigDir(self):
-        return self.actor.config.get(self.actor.site, 'pfsConfigDir').strip()
+    def engine(self):
+        return self.actor.engine
 
     def ping(self, cmd):
         """Query the actor for liveness/happiness."""
@@ -70,77 +55,62 @@ class DrpCmd(object):
         cmd.inform('text="Present!"')
         cmd.finish()
 
-    def ingest(self, cmd, doFinish=True):
+    def ingest(self, cmd):
+        def doIngest(filepath, target, pfsConfigDir, mode):
+            drpCmd = cmdList.Ingest(filepath, target=target, pfsConfigDir=pfsConfigDir, mode=mode)
+            cmd.debug('text="ingest cmd started on %s"' % (filepath))
+            return drpCmd.run()
+
         cmdKeys = cmd.cmd.keywords
+        target = cmdKeys["target"].values[0] if 'target' in cmdKeys else self.engine.target
+        pfsConfigDir = cmdKeys["pfsConfigDir"].values[0] if 'pfsConfigDir' in cmdKeys else self.engine.pfsConfigDir
+        mode = cmdKeys["mode"].values[0] if 'mode' in cmdKeys else self.engine.ingestMode
 
         filepath = cmdKeys["filepath"].values[0]
-        target = cmdKeys["target"].values[0] if 'target' in cmdKeys else self.target
-        cmd.debug('text="ingest cmd started on %s"' % (filepath))
-        doIngest(filepath, target=target, pfsConfigDir=self.pfsConfigDir)
+        doIngest(filepath, target, pfsConfigDir, mode)
 
-        cmd.inform(f"ingest={filepath}")
-        if doFinish:
-            cmd.finish()
+        cmd.finish(f"ingest={filepath}")
 
-    def detrend(self, cmd, doFinish=True):
+    def detrend(self, cmd):
+        def doDetrend(target, CALIB, rerun, visit):
+            drpCmd = cmdList.Detrend(target, CALIB, rerun, visit)
+            cmd.debug('text="detrend cmd started on %s"' % (visit))
+            return drpCmd.run()
+
         cmdKeys = cmd.cmd.keywords
 
         visit = cmdKeys["visit"].values[0]
-        self.lastVisit = visit
         arm = cmdKeys["arm"].values[0]
-        target = cmdKeys["target"].values[0] if 'target' in cmdKeys else self.target
-        rerun = cmdKeys["rerun"].values[0] if 'rerun' in cmdKeys else self.rerun
+        target = cmdKeys["target"].values[0] if 'target' in cmdKeys else self.engine.target
+        CALIB = cmdKeys["CALIB"].values[0] if 'CALIB' in cmdKeys else self.engine.CALIB
+        rerun = cmdKeys["rerun"].values[0] if 'rerun' in cmdKeys else self.engine.rerun
+
+        doDetrend(target, CALIB, rerun, visit)
 
         if 'target' in cmdKeys or 'rerun' in cmdKeys:
-            butler = dafPersist.Butler(os.path.join(target, 'rerun', rerun, 'detrend'))
+            butler = dafPersist.Butler(os.path.join(target, 'rerun', rerun))
         else:
-            butler = self.loadButler()
+            butler = self.engine.butler
 
-        if butler is None:
-            cmd.inform('text="butler not loaded, detrending one frame now ...')
-            doDetrend(target, self.CALIB, rerun, visit)
-            butler = self.loadButler()
-
-        if not imgPath(butler, visit, arm):
-            cmd.debug('text="detrend cmd started on %s"' % (visit))
-            doDetrend(target, self.CALIB, rerun, visit)
-
-        fullPath = imgPath(butler, visit, arm)
-        cmd.inform(f"detrend={fullPath}")
-
-        if doFinish:
-            cmd.finish()
-
-    def loadButler(self):
-        """load butler. """
-        if self.butler is None:
-            try:
-                butler = dafPersist.Butler(os.path.join(self.target, 'rerun', self.rerun))
-            except Exception as e:
-                self.actor.logger.warning('text=%s' % self.actor.strTraceback(e))
-                self.actor.logger.warning('butler could not be instantiated, might be a fresh one')
-                butler = None
-
-            self.butler = butler
-
-        return self.butler
+        imPath = butler.getUri('calexp', arm=arm, visit=visit)
+        cmd.finish(f"detrend={imPath}")
 
     def startDotLoop(self, cmd):
         """ Start dot loop. """
-        self.actor.engine.startDotLoop(cmd)
+        self.engine.startDotLoop(cmd)
         cmd.finish('text="starting loop... Run dotroaches, run ! "')
 
     def processDotData(self, cmd):
         """ Data is actually processed on the fly, just basically generate status. """
-        self.actor.engine.dotRoaches.status(cmd)
+        self.engine.dotRoaches.status(cmd)
         cmd.finish()
 
     def stopDotLoop(self, cmd):
         """ Stop dot loop. """
-        self.actor.engine.stopDotLoop(cmd)
+        self.engine.stopDotLoop(cmd)
         cmd.finish('text="ending dotroaches loop"')
 
     def checkLeftOvers(self, cmd):
         """ Check for non-reduced files."""
-        self.actor.engine.checkLeftOvers(cmd)
-        cmd.finish(f'text="len(fileBuffer)={len(self.actor.engine.fileBuffer)}"')
+        self.engine.checkLeftOvers(cmd)
+        cmd.finish(f'text="len(fileBuffer)={len(self.engine.fileBuffer)}"')
