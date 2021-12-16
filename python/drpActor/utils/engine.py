@@ -1,15 +1,11 @@
 import os
 from importlib import reload
 
-import drpActor.utils.detrend as detrend
+import drpActor.utils.cmdList as cmdList
 import drpActor.utils.dotroaches as dotroaches
-import drpActor.utils.ingest as ingest
-import drpActor.utils.reduce as reduce
 import lsst.daf.persistence as dafPersist
 
-reload(ingest)
-reload(detrend)
-reload(reduce)
+reload(cmdList)
 reload(dotroaches)
 
 
@@ -76,11 +72,16 @@ class DrpEngine(object):
         for file in filesPerNight:
             file.ingested = True
 
-        ingest.doIngest(filesPerNight[0].starPath, target=self.target, pfsConfigDir=self.pfsConfigDir,
-                        mode=self.ingestMode)
+        return cmdList.Ingest(self.target, filesPerNight[0].starPath, pfsConfigDir=self.pfsConfigDir,
+                              mode=self.ingestMode)
 
     def isrRemoval(self, visit):
         """ Proceed with isr removal for that visit."""
+
+        def genCommandStatus(cmd, status, statusStr, timing):
+            """ Just generate simple status keyword for each visit."""
+            self.actor.bcast.inform(f'{cmd}Status={visit},{status},{statusStr},{timing}')
+
         # get exposure with same visit
         files = [file for file in self.fileBuffer if file.visit == visit]
         if not files:
@@ -92,16 +93,19 @@ class DrpEngine(object):
         # seems unlikely to have separate night for one visit for still possible.
         for night in nights:
             filesPerNight = [file for file in files if file.night == night]
-            self.ingestPerNight(filesPerNight)
+            cmd = self.ingestPerNight(filesPerNight)
+            genCommandStatus('ingest', *cmd.run())
 
         if self.doAutoDetrend:
             options = self.lookupMetaData(files[0])
-            detrend.doDetrend(self.target, self.CALIB, self.rerun, visit, **options)
+            cmd = cmdList.Detrend(self.target, self.CALIB, self.rerun, visit, **options)
+            genCommandStatus('detrend', *cmd.run())
             self.genFilesKeywordForDisplay()
 
         if self.doAutoReduce:
             options = self.lookupMetaData(files[0])
-            reduce.doReduceExposure(self.target, self.CALIB, self.rerun, visit, **options)
+            cmd = cmdList.ReduceExposure(self.target, self.CALIB, self.rerun, visit, **options)
+            genCommandStatus('reduceExposure', *cmd.run())
 
         if self.dotRoaches is not None:
             self.dotRoaches.runAway(files)
@@ -143,4 +147,4 @@ class DrpEngine(object):
         """ """
         for visit in list(set([file.visit for file in self.fileBuffer])):
             cmd.inform(f'text="found visit:{visit} in leftovers"')
-            #self.isrRemoval(visit)
+            # self.isrRemoval(visit)
