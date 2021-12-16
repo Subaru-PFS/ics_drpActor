@@ -85,6 +85,6 @@ class ReduceExposure(drpCmd.DrpCommand):
 
         # we want probably to this from yaml/pfs_instdata but has not been merged yet
         isr = dict(doFlat=False)
-        repair = dict()
+        repair = dict(doCosmicRay=False)
         config = dict(isr=isr, repair=repair, windowed=True)  # we want to be quick, force windowed !!
         drpCmd.DrpCommand.__init__(self, target, cmdArgs, config=config)
