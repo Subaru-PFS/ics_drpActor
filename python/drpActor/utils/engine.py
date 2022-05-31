@@ -2,11 +2,11 @@ import os
 from importlib import reload
 
 import drpActor.utils.cmdList as cmdList
-import drpActor.utils.dotroaches as dotroaches
+import drpActor.utils.dotRoach as dotRoach
 import lsst.daf.persistence as dafPersist
 
 reload(cmdList)
-reload(dotroaches)
+reload(dotRoach)
 
 
 class DrpEngine(object):
@@ -23,18 +23,15 @@ class DrpEngine(object):
         self.ingestMode = 'copy' if self.actor.site == 'HILO' else 'link'
         self.doAutoDetrend = True
         self.doAutoReduce = False
-        self.dotRoaches = None
+        self.dotRoach = None
 
         self.butler = self.loadButler()
 
     @classmethod
     def fromConfigFile(cls, actor):
-        target = actor.config.get(actor.site, 'target').strip()
-        CALIB = actor.config.get(actor.site, 'CALIB').strip()
-        rerun = actor.config.get(actor.site, 'rerun').strip()
-        pfsConfigDir = actor.config.get(actor.site, 'pfsConfigDir').strip()
-        outputDir = actor.config.get(actor.site, 'outputDir').strip()
-        return cls(actor, target, CALIB, rerun, pfsConfigDir, outputDir)
+        argNames = ['target', 'CALIB', 'rerun', 'pfsConfigDir', 'outputDir']
+        args = [actor.config.get(actor.site, arg).strip() for arg in argNames]
+        return cls(actor, *args)
 
     def addFile(self, file):
         """ Add new file into the buffer. """
@@ -107,9 +104,9 @@ class DrpEngine(object):
             cmd = cmdList.ReduceExposure(self.target, self.CALIB, self.rerun, visit, **options)
             genCommandStatus('reduceExposure', *cmd.run())
 
-        if self.dotRoaches is not None:
-            self.dotRoaches.runAway(files)
-            self.dotRoaches.status(cmd=self.actor.bcast)
+        if self.dotRoach is not None:
+            self.dotRoach.runAway(files)
+            self.dotRoach.status(cmd=self.actor.bcast)
 
     def genFilesKeywordForDisplay(self):
         """ Generate detrend keyword for isr"""
@@ -127,17 +124,17 @@ class DrpEngine(object):
         for file in toRemove:
             self.fileBuffer.remove(file)
 
-    def startDotLoop(self, cmd):
-        """ Starting dotroaches loop, deactivating autodetrend. """
+    def startDotLoop(self, dataRoot, dotRoachConfig, keepMoving=False):
+        """ Starting dotRoach loop, deactivating autodetrend. """
         self.doAutoDetrend = False
         self.doAutoReduce = True
-        self.dotRoaches = dotroaches.DotRoaches(self)
+        self.dotRoach = dotRoach.DotRoach(self, dataRoot, dotRoachConfig, keepMoving=keepMoving)
 
     def stopDotLoop(self, cmd):
-        """ stopping dotroaches loop, reactivating autodetrend. """
-        self.dotRoaches.finish()
+        """ stopping dotRoach loop, reactivating autodetrend. """
+        self.dotRoach.finish()
 
-        self.dotRoaches = None
+        self.dotRoach = None
         self.doAutoDetrend = True
         self.doAutoReduce = False
 

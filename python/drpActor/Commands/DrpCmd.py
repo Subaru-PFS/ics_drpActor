@@ -2,12 +2,12 @@ import os
 from importlib import reload
 
 import drpActor.utils.cmdList as cmdList
-import drpActor.utils.dotroaches as dotroaches
+import drpActor.utils.dotRoach as dotRoach
 import lsst.daf.persistence as dafPersist
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 
-reload(dotroaches)
+reload(dotRoach)
 reload(cmdList)
 
 
@@ -28,7 +28,7 @@ class DrpCmd(object):
             ('ingest', '<filepath>', self.ingest),
             ('detrend', '<visit> <arm> [<rerun>]', self.detrend),
 
-            ('startDotLoop', '', self.startDotLoop),
+            ('startDotLoop', '<dataRoot> <dotRoachConfig> [@(keepMoving)]', self.startDotLoop),
             ('stopDotLoop', '', self.stopDotLoop),
             ('processDotData', '', self.processDotData),
             ('checkLeftOvers', '', self.checkLeftOvers)
@@ -40,6 +40,10 @@ class DrpCmd(object):
                                         keys.Key("filepath", types.String(), help="Raw FITS File path"),
                                         keys.Key("arm", types.String(), help="arm"),
                                         keys.Key("visit", types.Int(), help="visitId"),
+                                        keys.Key("dataRoot", types.String(),
+                                                 help="dataRoot which will contain the generated outputs"),
+                                        keys.Key("dotRoachConfig", types.String(),
+                                                 help="config file describing which cobras will be put behind dots."),
                                         )
 
     @property
@@ -97,18 +101,26 @@ class DrpCmd(object):
 
     def startDotLoop(self, cmd):
         """ Start dot loop. """
-        self.engine.startDotLoop(cmd)
-        cmd.finish('text="starting loop... Run dotroaches, run ! "')
+        cmdKeys = cmd.cmd.keywords
+        # output root.
+        dataRoot = cmdKeys['dataRoot'].values[0]
+        # which fiber/cobra to put behind dot.
+        dotRoachConfig = cmdKeys['dotRoachConfig'].values[0]
+        # keep moving no matter what.
+        keepMoving = 'keepMoving' in cmdKeys
+
+        self.engine.startDotLoop(dataRoot=dataRoot, dotRoachConfig=dotRoachConfig, keepMoving=keepMoving)
+        cmd.finish('text="starting loop... Run dotRoaches, run ! "')
 
     def processDotData(self, cmd):
         """ Data is actually processed on the fly, just basically generate status. """
-        self.engine.dotRoaches.status(cmd)
+        self.engine.dotRoach.status(cmd)
         cmd.finish()
 
     def stopDotLoop(self, cmd):
         """ Stop dot loop. """
         self.engine.stopDotLoop(cmd)
-        cmd.finish('text="ending dotroaches loop"')
+        cmd.finish('text="ending dotRoach loop"')
 
     def checkLeftOvers(self, cmd):
         """ Check for non-reduced files."""
