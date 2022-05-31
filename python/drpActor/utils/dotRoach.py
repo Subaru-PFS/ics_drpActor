@@ -2,18 +2,12 @@ import os
 
 import numpy as np
 import pandas as pd
-from pfs.utils.butler import Butler
 from pfs.utils.fiberids import FiberIds
 
 
 class DotRoach(object):
     gfm = pd.DataFrame(FiberIds().data)
     sgfm = gfm[gfm.cobraId != FiberIds.MISSING_VALUE]
-
-    butler = Butler()
-    pfi = butler.get('moduleXml', moduleName='ALL', version='')
-
-    disabledOrBrokenCobras = sgfm.sort_values('cobraId')[pfi.status != pfi.COBRA_OK_MASK]
 
     def __init__(self, engine, dataRoot, dotRoachConfig, keepMoving=False):
         """ Placeholder to handle DotRoach loop"""
@@ -26,12 +20,9 @@ class DotRoach(object):
 
     @property
     def monitoringFiberIds(self):
-        # bitMask 0, means at Home.
+        # bitMask 0, means at Home. disabled / broken should already be at home.
         atHome = self.dotRoachConfig[self.dotRoachConfig.bitMask == 0].fiberId
-        disabled = DotRoach.disabledOrBrokenCobras.fiberId
-        # set monitoring as disabled + cobra at home.
-        fiberIds = list(set(list(atHome) + list(disabled)))
-        return fiberIds
+        return list(atHome)
 
     def loadAllIterations(self):
         """Load allIterations dataframe."""
