@@ -124,13 +124,13 @@ class DrpEngine(object):
         for file in toRemove:
             self.fileBuffer.remove(file)
 
-    def startDotLoop(self, dataRoot, dotRoachConfig, keepMoving=False):
+    def startDotRoach(self, dataRoot, maskFile, keepMoving=False):
         """ Starting dotRoach loop, deactivating autodetrend. """
         self.doAutoDetrend = False
         self.doAutoReduce = True
-        self.dotRoach = dotRoach.DotRoach(self, dataRoot, dotRoachConfig, keepMoving=keepMoving)
+        self.dotRoach = dotRoach.DotRoach(self, dataRoot, maskFile, keepMoving=keepMoving)
 
-    def stopDotLoop(self, cmd):
+    def stopDotRoach(self, cmd):
         """ stopping dotRoach loop, reactivating autodetrend. """
         self.dotRoach.finish()
 

@@ -28,9 +28,10 @@ class DrpCmd(object):
             ('ingest', '<filepath>', self.ingest),
             ('detrend', '<visit> <arm> [<rerun>]', self.detrend),
 
-            ('startDotLoop', '<dataRoot> <dotRoachConfig> [@(keepMoving)]', self.startDotLoop),
-            ('stopDotLoop', '', self.stopDotLoop),
-            ('processDotData', '', self.processDotData),
+            ('startDotRoach', '<dataRoot> <maskFile> [@(keepMoving)]', self.startDotRoach),
+            ('stopDotRoach', '', self.stopDotRoach),
+            ('processDotRoach', '', self.processDotRoach),
+
             ('checkLeftOvers', '', self.checkLeftOvers)
         ]
 
@@ -42,7 +43,7 @@ class DrpCmd(object):
                                         keys.Key("visit", types.Int(), help="visitId"),
                                         keys.Key("dataRoot", types.String(),
                                                  help="dataRoot which will contain the generated outputs"),
-                                        keys.Key("dotRoachConfig", types.String(),
+                                        keys.Key("maskFile", types.String(),
                                                  help="config file describing which cobras will be put behind dots."),
                                         )
 
@@ -99,27 +100,27 @@ class DrpCmd(object):
         imPath = butler.getUri('calexp', arm=arm, visit=visit)
         cmd.finish(f"detrend={imPath}")
 
-    def startDotLoop(self, cmd):
+    def startDotRoach(self, cmd):
         """ Start dot loop. """
         cmdKeys = cmd.cmd.keywords
         # output root.
         dataRoot = cmdKeys['dataRoot'].values[0]
         # which fiber/cobra to put behind dot.
-        dotRoachConfig = cmdKeys['dotRoachConfig'].values[0]
+        maskFile = cmdKeys['maskFile'].values[0]
         # keep moving no matter what.
         keepMoving = 'keepMoving' in cmdKeys
 
-        self.engine.startDotLoop(dataRoot=dataRoot, dotRoachConfig=dotRoachConfig, keepMoving=keepMoving)
+        self.engine.startDotRoach(dataRoot=dataRoot, maskFile=maskFile, keepMoving=keepMoving)
         cmd.finish('text="starting loop... Run dotRoaches, run ! "')
 
-    def processDotData(self, cmd):
+    def processDotRoach(self, cmd):
         """ Data is actually processed on the fly, just basically generate status. """
         self.engine.dotRoach.status(cmd)
         cmd.finish()
 
-    def stopDotLoop(self, cmd):
+    def stopDotRoach(self, cmd):
         """ Stop dot loop. """
-        self.engine.stopDotLoop(cmd)
+        self.engine.stopDotRoach(cmd)
         cmd.finish('text="ending dotRoach loop"')
 
     def checkLeftOvers(self, cmd):

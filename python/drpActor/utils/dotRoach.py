@@ -9,19 +9,19 @@ class DotRoach(object):
     gfm = pd.DataFrame(FiberIds().data)
     sgfm = gfm[gfm.cobraId != FiberIds.MISSING_VALUE]
 
-    def __init__(self, engine, dataRoot, dotRoachConfig, keepMoving=False):
+    def __init__(self, engine, dataRoot, maskFile, keepMoving=False):
         """ Placeholder to handle DotRoach loop"""
         self.engine = engine
 
         self.pathDict = self.initialise(dataRoot)
-        self.dotRoachConfig = pd.read_csv(dotRoachConfig, index_col=0).sort_values('cobraId')
+        self.maskFile = pd.read_csv(maskFile, index_col=0).sort_values('cobraId')
         self.keepMoving = keepMoving
         self.normFactor = None
 
     @property
     def monitoringFiberIds(self):
         # bitMask 0, means at Home. disabled / broken should already be at home.
-        atHome = self.dotRoachConfig[self.dotRoachConfig.bitMask == 0].fiberId
+        atHome = self.maskFile[self.maskFile.bitMask == 0].fiberId
         return list(atHome)
 
     def loadAllIterations(self):
@@ -67,7 +67,7 @@ class DotRoach(object):
         def buildIterData(fluxPerCobra):
             """Build an iteration file with an entry for each cobra."""
             # copy config as based structured file.
-            newIter = self.dotRoachConfig.copy()
+            newIter = self.maskFile.copy()
             # initialise flux to NaN
             flux = np.ones(len(newIter)) * np.NaN
             # fill with measured flux
@@ -78,7 +78,7 @@ class DotRoach(object):
 
         def toMaskFile(lastIter):
             """Convert last iteration to cobra maskFile."""
-            maskFile = self.dotRoachConfig.copy()
+            maskFile = self.maskFile.copy()
             maskFile['bitMask'] = lastIter.keepMoving.to_numpy().astype('int')
             return maskFile
 
@@ -125,7 +125,7 @@ class DotRoach(object):
 
         # first iteration
         if allIterations.empty:
-            newIter['keepMoving'] = self.dotRoachConfig.bitMask.astype('bool')
+            newIter['keepMoving'] = self.maskFile.bitMask.astype('bool')
             newIter['nIter'] = int(0)
             return newIter
 
