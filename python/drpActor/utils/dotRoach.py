@@ -148,6 +148,17 @@ class DotRoach(object):
 
     def process(self, newIter):
         """Process new iteration, namely decide which cobras need to stop moving."""
+
+        def shouldIStop(fluxRatio, goal=0.03):
+            if fluxRatio[-1] < goal:
+                return True
+
+            if fluxRatio.min() < 0.5:
+                if fluxRatio[-1] - fluxRatio[-2] > 0:
+                    return True
+
+            return False
+
         allIterations = self.loadAllIterations()
 
         # first iteration
@@ -162,6 +173,19 @@ class DotRoach(object):
         # logical and with previous iteration
         lastIter = allIterations.query(f'visit=={allIterations.visit.max()}').sort_values('cobraId')
         keepMoving = np.logical_and(lastIter.keepMoving, keepMoving).to_numpy()
+
+        for cobraId, df in allIterations.groupby('cobraId'):
+            df = df.sort_values('nIter')
+            new = lastIter.set_index('cobraId').loc[cobraId]
+            iCob = cobraId - 1
+            cobraStopped = not keepMoving[iCob]
+            if cobraStopped:
+                continue
+
+            fluxCobra = np.append(df.fluxNorm.to_numpy(), new.fluxNorm)
+            fluxRatio = fluxCobra / fluxCobra[0]
+            keepMoving[iCob] = shouldIStop(fluxRatio)
+
         newIter['keepMoving'] = keepMoving
         newIter['nIter'] = lastIter.nIter.to_numpy() + 1
 
