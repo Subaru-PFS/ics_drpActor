@@ -184,7 +184,7 @@ class DotRoach(object):
 
             fluxCobra = np.append(df.fluxNorm.to_numpy(), new.fluxNorm)
             fluxRatio = fluxCobra / fluxCobra[0]
-            keepMoving[iCob] = shouldIStop(fluxRatio)
+            keepMoving[iCob] = not shouldIStop(fluxRatio)
 
         newIter['keepMoving'] = keepMoving
         newIter['nIter'] = lastIter.nIter.to_numpy() + 1
