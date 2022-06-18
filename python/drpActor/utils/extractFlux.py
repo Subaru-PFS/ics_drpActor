@@ -1,6 +1,9 @@
+import datetime
+import glob
 import logging
 import time
 
+import lsst.afw.image as afwImage
 import numpy as np
 import pandas as pd
 from lsst.ip.isr import AssembleCcdTask
@@ -16,7 +19,18 @@ config.validate()
 extractSpectra = ExtractSpectraTask(config=config)
 
 
-def getWindowedFluxes(butler, dataId, fiberTrace, darkVariance=30, **kwargs):
+def getPFSA(dataId):
+    """Lookup a PFSA file that was written this year"""
+    today = datetime.date.today()
+    files = glob.glob(
+        f"/data/raw/{today.year}*/sps/PFSA%(visit)06d%(spectrograph)d{dict(b=1, r=2, n=3, m=4)[dataId['arm']]}.fits" % dataId)
+    if files:
+        return files[0]
+    else:
+        raise RuntimeError(f"Unable to find PFSA file for {dataId}")
+
+
+def getWindowedFluxes(butler, dataId, fiberTrace, darkVariance=30, useButler=False, **kwargs):
     """Return an estimate of the median flux in each fibre
 
     butler: a butler pointing at the data
@@ -30,19 +44,18 @@ def getWindowedFluxes(butler, dataId, fiberTrace, darkVariance=30, **kwargs):
     dataId.update(kwargs)
     detectorMap = butler.get("detectorMap", dataId)
 
-    # if fiberTraces is None:
-    #     fiberProfiles = butler.get("fiberProfiles", dataId)
-    #     detectorMap = butler.get("detectorMap", dataId)
-    #
-    #     fiberTrace = fiberProfiles.makeFiberTracesFromDetectorMap(detectorMap)
-    # else:
-    #     fiberTrace = fiberTraces[dataId["arm"]]
+    if useButler:
+        exp = butler.get("raw", dataId, filter=dataId['arm'])
+        exp = exp.convertF()
+    else:
+        camera = butler.get("camera")
+        fileName = getPFSA(dataId)
+        raw = afwImage.ImageF.readFits(fileName)
+        md = afwImage.readMetadata(fileName)
 
-    # pfsConfig = butler.get("pfsConfig", dataId)
-    # pfsConfig = pfsConfig[pfsConfig.targetType != TargetType.ENGINEERING]
-
-    exp = butler.get("raw", dataId, filter=dataId['arm'])
-    exp = exp.convertF()
+        exp = afwImage.makeExposure(afwImage.makeMaskedImage(raw))
+        exp.setMetadata(md)
+        exp.setDetector(camera["%(arm)s%(spectrograph)d" % dataId])
 
     md = exp.getMetadata()
     row0, row1 = md["W_CDROW0"], md["W_CDROWN"]

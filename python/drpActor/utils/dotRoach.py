@@ -1,10 +1,11 @@
+import logging
 import os
 
 import drpActor.utils.extractFlux as extractFlux
 import numpy as np
 import pandas as pd
 from pfs.utils.fiberids import FiberIds
-import logging
+
 
 class DotRoach(object):
     gfm = pd.DataFrame(FiberIds().data)
@@ -53,7 +54,7 @@ class DotRoach(object):
 
         for file in files:
             fiberTrace = self.getFiberTrace(file.dataId)
-            flux = extractFlux.getWindowedFluxes(self.engine.butler, file.dataId, fiberTrace=fiberTrace)
+            flux = extractFlux.getWindowedFluxes(self.engine.butler, file.dataId, fiberTrace=fiberTrace, useButler=False)
             fluxPerFiber.append(flux)
 
         return pd.concat(fluxPerFiber).groupby('fiberId').sum().reset_index()

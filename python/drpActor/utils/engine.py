@@ -21,6 +21,7 @@ class DrpEngine(object):
         self.fileBuffer = []
 
         self.ingestMode = 'copy' if self.actor.site == 'HILO' else 'link'
+        self.doAutoIngest = True
         self.doAutoDetrend = True
         self.doAutoReduce = False
         self.dotRoach = None
@@ -87,11 +88,12 @@ class DrpEngine(object):
         nights = list(set([file.night for file in files]))
         [visit] = list(set([file.visit for file in files]))
 
-        # seems unlikely to have separate night for one visit for still possible.
-        for night in nights:
-            filesPerNight = [file for file in files if file.night == night]
-            cmd = self.ingestPerNight(filesPerNight)
-            genCommandStatus('ingest', *cmd.run())
+        if self.doAutoIngest:
+            # seems unlikely to have separate night for one visit for still possible.
+            for night in nights:
+                filesPerNight = [file for file in files if file.night == night]
+                cmd = self.ingestPerNight(filesPerNight)
+                genCommandStatus('ingest', *cmd.run())
 
         if self.doAutoDetrend:
             options = self.lookupMetaData(files[0])
@@ -138,6 +140,7 @@ class DrpEngine(object):
 
     def startDotRoach(self, dataRoot, maskFile, keepMoving=False):
         """ Starting dotRoach loop, deactivating autodetrend. """
+        self.doAutoIngest = False
         self.doAutoDetrend = False
         self.doAutoReduce = False
         self.dotRoach = dotRoach.DotRoach(self, dataRoot, maskFile, keepMoving=keepMoving)
@@ -147,6 +150,7 @@ class DrpEngine(object):
         self.dotRoach.finish()
 
         self.dotRoach = None
+        self.doAutoIngest = True
         self.doAutoDetrend = True
         self.doAutoReduce = False
 
