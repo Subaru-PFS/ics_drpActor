@@ -140,7 +140,6 @@ class DrpEngine(object):
 
     def startDotRoach(self, dataRoot, maskFile, keepMoving=False):
         """ Starting dotRoach loop, deactivating autodetrend. """
-        self.doAutoIngest = False
         self.doAutoDetrend = False
         self.doAutoReduce = False
         self.dotRoach = dotRoach.DotRoach(self, dataRoot, maskFile, keepMoving=keepMoving)

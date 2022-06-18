@@ -49,12 +49,20 @@ class DotRoach(object):
 
     def collectFiberData(self, files):
         """Retrieve pfsArm from butler and return flux estimation for each fiber."""
-
         fluxPerFiber = []
+
+        # load fiberTraces on first iteration presumably.
+        if not self.fiberTraces:
+            for file in files:
+                self.getFiberTrace(file.dataId)
+
+        # now we can safely deactivate autoIngest to save time.
+        self.engine.doAutoIngest = False
 
         for file in files:
             fiberTrace = self.getFiberTrace(file.dataId)
-            flux = extractFlux.getWindowedFluxes(self.engine.butler, file.dataId, fiberTrace=fiberTrace, useButler=False)
+            flux = extractFlux.getWindowedFluxes(self.engine.butler, file.dataId,
+                                                 fiberTrace=fiberTrace, useButler=False)
             fluxPerFiber.append(flux)
 
         return pd.concat(fluxPerFiber).groupby('fiberId').sum().reset_index()
