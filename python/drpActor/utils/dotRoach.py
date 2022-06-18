@@ -20,6 +20,7 @@ class DotRoach(object):
         self.keepMoving = keepMoving
         self.normFactor = None
 
+        self.detectorMaps = dict()
         self.fiberTraces = dict()
 
     @property
@@ -60,24 +61,25 @@ class DotRoach(object):
         self.engine.doAutoIngest = False
 
         for file in files:
-            fiberTrace = self.getFiberTrace(file.dataId)
+            fiberTrace, detectorMap = self.getFiberTrace(file.dataId)
             flux = extractFlux.getWindowedFluxes(self.engine.butler, file.dataId,
-                                                 fiberTrace=fiberTrace, useButler=False)
+                                                 fiberTrace=fiberTrace, detectorMap=detectorMap, useButler=False)
             fluxPerFiber.append(flux)
 
         return pd.concat(fluxPerFiber).groupby('fiberId').sum().reset_index()
 
     def getFiberTrace(self, dataId):
         """Retrieve fiberTrace"""
-        fiberTraceKey = dataId['spectrograph'], dataId['arm']
+        cameraKey = dataId['spectrograph'], dataId['arm']
 
-        if fiberTraceKey not in self.fiberTraces:
-            logging.info(f'making fiberTrace for {fiberTraceKey}')
+        if cameraKey not in self.fiberTraces:
+            logging.info(f'making fiberTrace for {cameraKey}')
             fiberProfiles = self.engine.butler.get("fiberProfiles", dataId)
             detectorMap = self.engine.butler.get("detectorMap", dataId)
-            self.fiberTraces[fiberTraceKey] = fiberProfiles.makeFiberTracesFromDetectorMap(detectorMap)
+            self.detectorMaps[cameraKey] = detectorMap
+            self.fiberTraces[cameraKey] = fiberProfiles.makeFiberTracesFromDetectorMap(detectorMap)
 
-        return self.fiberTraces[fiberTraceKey]
+        return self.fiberTraces[cameraKey], self.detectorMaps[cameraKey]
 
     def runAway(self, files):
         """Append new iteration to dataset."""

@@ -30,7 +30,7 @@ def getPFSA(dataId):
         raise RuntimeError(f"Unable to find PFSA file for {dataId}")
 
 
-def getWindowedFluxes(butler, dataId, fiberTrace, darkVariance=30, useButler=False, **kwargs):
+def getWindowedFluxes(butler, dataId, fiberTrace, detectorMap, darkVariance=30, useButler=False, **kwargs):
     """Return an estimate of the median flux in each fibre
 
     butler: a butler pointing at the data
@@ -42,7 +42,7 @@ def getWindowedFluxes(butler, dataId, fiberTrace, darkVariance=30, useButler=Fal
     start = time.time()
     dataId = dataId.copy()
     dataId.update(kwargs)
-    detectorMap = butler.get("detectorMap", dataId)
+    #detectorMap = butler.get("detectorMap", dataId)
 
     if useButler:
         exp = butler.get("raw", dataId, filter=dataId['arm'])
