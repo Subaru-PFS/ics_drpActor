@@ -10,13 +10,12 @@ reload(dotRoach)
 
 
 class DrpEngine(object):
-    def __init__(self, actor, target, CALIB, rerun, pfsConfigDir, outputDir):
+    def __init__(self, actor, target, CALIB, rerun, pfsConfigDir):
         self.actor = actor
         self.target = target
         self.CALIB = CALIB
         self.rerun = rerun
         self.pfsConfigDir = pfsConfigDir
-        self.outputDir = outputDir
 
         self.fileBuffer = []
 
@@ -29,7 +28,7 @@ class DrpEngine(object):
 
     @classmethod
     def fromConfigFile(cls, actor):
-        argNames = ['target', 'CALIB', 'rerun', 'pfsConfigDir', 'outputDir']
+        argNames = ['target', 'CALIB', 'rerun', 'pfsConfigDir']
         args = [actor.config.get(actor.site, arg).strip() for arg in argNames]
         return cls(actor, *args)
 
