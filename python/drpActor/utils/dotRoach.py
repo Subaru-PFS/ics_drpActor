@@ -1,5 +1,7 @@
+import logging
 import os
 
+import drpActor.utils.extractFlux as extractFlux
 import numpy as np
 import pandas as pd
 from pfs.utils.fiberids import FiberIds
@@ -17,6 +19,9 @@ class DotRoach(object):
         self.maskFile = pd.read_csv(maskFile, index_col=0).sort_values('cobraId')
         self.keepMoving = keepMoving
         self.normFactor = None
+
+        self.detectorMaps = dict()
+        self.fiberTraces = dict()
 
     @property
     def monitoringFiberIds(self):
@@ -45,14 +50,36 @@ class DotRoach(object):
 
     def collectFiberData(self, files):
         """Retrieve pfsArm from butler and return flux estimation for each fiber."""
-
         fluxPerFiber = []
 
+        # load fiberTraces on first iteration presumably.
+        if not self.fiberTraces:
+            for file in files:
+                self.getFiberTrace(file.dataId)
+
+        # now we can safely deactivate autoIngest to save time.
+        self.engine.doAutoIngest = False
+
         for file in files:
-            pfsArm = self.engine.butler.get('pfsArm', **file.dataId)
-            fluxPerFiber.append(pd.DataFrame(dict(flux=pfsArm.flux.sum(axis=1), fiberId=pfsArm.fiberId)))
+            fiberTrace, detectorMap = self.getFiberTrace(file.dataId)
+            flux = extractFlux.getWindowedFluxes(self.engine.butler, file.dataId,
+                                                 fiberTrace=fiberTrace, detectorMap=detectorMap, useButler=False)
+            fluxPerFiber.append(flux)
 
         return pd.concat(fluxPerFiber).groupby('fiberId').sum().reset_index()
+
+    def getFiberTrace(self, dataId):
+        """Retrieve fiberTrace"""
+        cameraKey = dataId['spectrograph'], dataId['arm']
+
+        if cameraKey not in self.fiberTraces:
+            logging.info(f'making fiberTrace for {cameraKey}')
+            fiberProfiles = self.engine.butler.get("fiberProfiles", dataId)
+            detectorMap = self.engine.butler.get("detectorMap", dataId)
+            self.detectorMaps[cameraKey] = detectorMap
+            self.fiberTraces[cameraKey] = fiberProfiles.makeFiberTracesFromDetectorMap(detectorMap)
+
+        return self.fiberTraces[cameraKey], self.detectorMaps[cameraKey]
 
     def runAway(self, files):
         """Append new iteration to dataset."""
