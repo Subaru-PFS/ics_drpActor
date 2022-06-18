@@ -1,9 +1,10 @@
 import os
 
+import drpActor.utils.extractFlux as extractFlux
 import numpy as np
 import pandas as pd
 from pfs.utils.fiberids import FiberIds
-
+import logging
 
 class DotRoach(object):
     gfm = pd.DataFrame(FiberIds().data)
@@ -17,6 +18,8 @@ class DotRoach(object):
         self.maskFile = pd.read_csv(maskFile, index_col=0).sort_values('cobraId')
         self.keepMoving = keepMoving
         self.normFactor = None
+
+        self.fiberTraces = dict()
 
     @property
     def monitoringFiberIds(self):
@@ -49,10 +52,23 @@ class DotRoach(object):
         fluxPerFiber = []
 
         for file in files:
-            pfsArm = self.engine.butler.get('pfsArm', **file.dataId)
-            fluxPerFiber.append(pd.DataFrame(dict(flux=pfsArm.flux.sum(axis=1), fiberId=pfsArm.fiberId)))
+            fiberTrace = self.getFiberTrace(file.dataId)
+            flux = extractFlux.getWindowedFluxes(self.engine.butler, file.dataId, fiberTrace=fiberTrace)
+            fluxPerFiber.append(flux)
 
         return pd.concat(fluxPerFiber).groupby('fiberId').sum().reset_index()
+
+    def getFiberTrace(self, dataId):
+        """Retrieve fiberTrace"""
+        fiberTraceKey = dataId['spectrograph'], dataId['arm']
+
+        if fiberTraceKey not in self.fiberTraces:
+            logging.info(f'making fiberTrace for {fiberTraceKey}')
+            fiberProfiles = self.engine.butler.get("fiberProfiles", dataId)
+            detectorMap = self.engine.butler.get("detectorMap", dataId)
+            self.fiberTraces[fiberTraceKey] = fiberProfiles.makeFiberTracesFromDetectorMap(detectorMap)
+
+        return self.fiberTraces[fiberTraceKey]
 
     def runAway(self, files):
         """Append new iteration to dataset."""
