@@ -149,7 +149,7 @@ class DotRoach(object):
     def process(self, newIter):
         """Process new iteration, namely decide which cobras need to stop moving."""
 
-        def shouldIStop(fluxRatio, goal=0.03):
+        def shouldIStop(fluxRatio, goal=0.01):
             if fluxRatio[-1] < goal:
                 return True
 
@@ -176,7 +176,7 @@ class DotRoach(object):
 
         for cobraId, df in allIterations.groupby('cobraId'):
             df = df.sort_values('nIter')
-            new = lastIter.set_index('cobraId').loc[cobraId]
+            new = newIter.set_index('cobraId').loc[cobraId]
             iCob = cobraId - 1
             cobraStopped = not keepMoving[iCob]
             if cobraStopped:
