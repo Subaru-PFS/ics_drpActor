@@ -1,4 +1,5 @@
 import os
+import shutil
 from importlib import reload
 
 import drpActor.utils.cmdList as cmdList
@@ -10,13 +11,12 @@ reload(dotRoach)
 
 
 class DrpEngine(object):
-    def __init__(self, actor, target, CALIB, rerun, pfsConfigDir, outputDir):
+    def __init__(self, actor, target, CALIB, rerun, pfsConfigDir):
         self.actor = actor
         self.target = target
         self.CALIB = CALIB
         self.rerun = rerun
         self.pfsConfigDir = pfsConfigDir
-        self.outputDir = outputDir
 
         self.fileBuffer = []
 
@@ -29,7 +29,7 @@ class DrpEngine(object):
 
     @classmethod
     def fromConfigFile(cls, actor):
-        argNames = ['target', 'CALIB', 'rerun', 'pfsConfigDir', 'outputDir']
+        argNames = ['target', 'CALIB', 'rerun', 'pfsConfigDir']
         args = [actor.config.get(actor.site, arg).strip() for arg in argNames]
         return cls(actor, *args)
 
@@ -123,6 +123,18 @@ class DrpEngine(object):
 
         for file in toRemove:
             self.fileBuffer.remove(file)
+
+    def newPfsDesign(self, designId):
+        """New PfsDesign has been declared, copy it to the repo if new."""
+        fileName = f'pfsDesign-0x{designId:016x}.fits'
+
+        if not os.path.isfile(os.path.join(self.pfsConfigDir, fileName)):
+            designPath = os.path.join('/data/pfsDesign', fileName)
+            try:
+                shutil.copy(designPath, self.pfsConfigDir)
+                self.actor.logger.info(f'{fileName} copied {self.pfsConfigDir} successfully !')
+            except Exception as e:
+                self.actor.logger.warning(f'failed to copy from {designPath} to {self.pfsConfigDir} with {e}')
 
     def startDotRoach(self, dataRoot, maskFile, keepMoving=False):
         """ Starting dotRoach loop, deactivating autodetrend. """
