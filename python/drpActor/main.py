@@ -47,7 +47,7 @@ class DrpActor(Actor):
 
         Actor.__init__(self, name,
                        productName=productName,
-                       configFile=configFile, modelNames=['ccd_%s' % cam for cam in self.cams] + ['sps'])
+                       configFile=configFile, modelNames=['ccd_%s' % cam for cam in self.cams] + ['sps', 'iic'])
 
         self.everConnected = False
 
@@ -60,6 +60,7 @@ class DrpActor(Actor):
                 self.models['ccd_%s' % cam].keyVarDict['filepath'].addCallback(self.ccdFilepath, callNow=False)
 
             self.models['sps'].keyVarDict['fileIds'].addCallback(self.spsFileIds, callNow=False)
+            self.models['iic'].keyVarDict['designId'].addCallback(self.newPfsDesign, callNow=False)
             self.engine = self.loadDrpEngine()
             self.everConnected = True
 
@@ -92,6 +93,14 @@ class DrpActor(Actor):
             return
 
         self.engine.isrRemoval(visit)
+
+    def newPfsDesign(self, keyvar):
+        try:
+            designId = keyvar.getValue()
+        except ValueError:
+            return
+
+        self.engine.newPfsDesign(designId)
 
 
 def main():
