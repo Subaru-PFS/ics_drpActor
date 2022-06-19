@@ -42,7 +42,6 @@ def getWindowedFluxes(butler, dataId, fiberTrace, detectorMap, darkVariance=30, 
     start = time.time()
     dataId = dataId.copy()
     dataId.update(kwargs)
-    #detectorMap = butler.get("detectorMap", dataId)
 
     if useButler:
         exp = butler.get("raw", dataId, filter=dataId['arm'])

@@ -121,7 +121,7 @@ class DrpCmd(object):
     def stopDotRoach(self, cmd):
         """ Stop dot loop. """
         self.engine.stopDotRoach(cmd)
-        cmd.finish('text="ending dotRoach loop"')
+        cmd.finish()
 
     def checkLeftOvers(self, cmd):
         """ Check for non-reduced files."""
