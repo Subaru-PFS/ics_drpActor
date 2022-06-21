@@ -84,7 +84,7 @@ class ReduceExposure(drpCmd.DrpCommand):
                   f"--id visit={visit} --clobber-config --no-versions"
 
         # we want probably to this from yaml/pfs_instdata but has not been merged yet
-        isr = dict(doFlat=False)
+        isr = dict(doFlat=False, doSaturationInterpolation=False)
         repair = dict(doCosmicRay=False)
-        config = dict(isr=isr, repair=repair, windowed=True)  # we want to be quick, force windowed !!
+        config = dict(isr=isr, repair=repair, windowed=windowed, doAdjustDetectorMap=False, doMeasureLines=False)
         drpCmd.DrpCommand.__init__(self, target, cmdArgs, config=config)
