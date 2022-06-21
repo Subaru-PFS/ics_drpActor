@@ -19,7 +19,9 @@ class DotRoach(object):
         self.maskFile = pd.read_csv(maskFile, index_col=0).sort_values('cobraId')
         self.finalMove = self.makeFinalMove()
         self.keepMoving = keepMoving
+
         self.normFactor = None
+        self.doReverse = False
 
         self.detectorMaps = dict()
         self.fiberTraces = dict()
@@ -185,7 +187,14 @@ class DotRoach(object):
 
         # logical and with previous iteration
         lastIter = allIterations.query(f'visit=={allIterations.visit.max()}').sort_values('cobraId')
-        keepMoving = np.logical_and(lastIter.keepMoving, keepMoving).to_numpy()
+
+        if self.doReverse:
+            self.doReverse = False
+            prevState = self.finalMove.bitMask.astype('bool').to_numpy()
+        else:
+            prevState = lastIter.keepMoving
+
+        keepMoving = np.logical_and(prevState, keepMoving).to_numpy()
 
         for cobraId, df in allIterations.groupby('cobraId'):
             df = df.sort_values('nIter')
@@ -212,6 +221,10 @@ class DotRoach(object):
     def finish(self):
         """ """
         pass
+
+    def reverse(self):
+        """"""
+        self.doReverse = True
 
     def status(self, cmd):
         """ """

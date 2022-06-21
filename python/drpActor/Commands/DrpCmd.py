@@ -31,6 +31,7 @@ class DrpCmd(object):
             ('startDotRoach', '<dataRoot> <maskFile> [@(keepMoving)]', self.startDotRoach),
             ('stopDotRoach', '', self.stopDotRoach),
             ('processDotRoach', '', self.processDotRoach),
+            ('reverseDotRoach', '', self.reverseDotRoach),
 
             ('doReduce', '[@off]', self.doReduce),
             ('doDetrend', '[@off]', self.doDetrend),
@@ -119,6 +120,11 @@ class DrpCmd(object):
     def processDotRoach(self, cmd):
         """ Data is actually processed on the fly, just basically generate status. """
         self.engine.dotRoach.status(cmd)
+        cmd.finish()
+
+    def reverseDotRoach(self, cmd):
+        """ Data is actually processed on the fly, just basically generate status. """
+        self.engine.dotRoach.reverse()
         cmd.finish()
 
     def stopDotRoach(self, cmd):
