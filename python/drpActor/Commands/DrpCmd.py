@@ -32,6 +32,9 @@ class DrpCmd(object):
             ('stopDotRoach', '', self.stopDotRoach),
             ('processDotRoach', '', self.processDotRoach),
 
+            ('doReduce', '[@off]', self.doReduce),
+            ('doDetrend', '[@off]', self.doDetrend),
+
             ('checkLeftOvers', '', self.checkLeftOvers)
         ]
 
@@ -122,6 +125,22 @@ class DrpCmd(object):
         """ Stop dot loop. """
         self.engine.stopDotRoach(cmd)
         cmd.finish()
+
+    def doReduce(self, cmd):
+        """activating/deactivating auto reduction."""
+        cmdKeys = cmd.cmd.keywords
+
+        doReduce = 'off' not in cmdKeys
+        self.engine.doAutoReduce = doReduce
+        cmd.finish(f'text="do drp.autoReduce {doReduce}"')
+
+    def doDetrend(self, cmd):
+        """activating/deactivating auto reduction."""
+        cmdKeys = cmd.cmd.keywords
+
+        doDetrend = 'off' not in cmdKeys
+        self.engine.doAutoDetrend = doDetrend
+        cmd.finish(f'text="do drp.doAutoDetrend {doDetrend}"')
 
     def checkLeftOvers(self, cmd):
         """ Check for non-reduced files."""
