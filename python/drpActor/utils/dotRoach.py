@@ -21,6 +21,7 @@ class DotRoach(object):
         self.keepMoving = keepMoving
 
         self.normFactor = None
+        self.writeFinalMove = True
         self.doReverse = False
 
         self.detectorMaps = dict()
@@ -141,7 +142,8 @@ class DotRoach(object):
         maskFile.to_csv(os.path.join(self.pathDict['maskFilesRoot'], f'iter{nIter}.csv'))
 
         # also export finalMove, we dont know when the sequence actually end.
-        self.finalMove.to_csv(os.path.join(self.pathDict['maskFilesRoot'], 'finalMove.csv'))
+        if self.writeFinalMove:
+            self.finalMove.to_csv(os.path.join(self.pathDict['maskFilesRoot'], 'finalMove.csv'))
 
     def fluxNormalized(self, newIter):
         """Return flux normalized by the lamp response."""
@@ -161,7 +163,7 @@ class DotRoach(object):
     def process(self, newIter):
         """Process new iteration, namely decide which cobras need to stop moving."""
 
-        def shouldIStop(fluxRatio, goal=0.005):
+        def shouldIStop(fluxRatio, goal=0.003):
             """"""
             flag = 0
 
@@ -190,6 +192,7 @@ class DotRoach(object):
 
         if self.doReverse:
             self.doReverse = False
+            self.writeFinalMove = False
             prevState = self.finalMove.bitMask.astype('bool').to_numpy()
         else:
             prevState = lastIter.keepMoving
