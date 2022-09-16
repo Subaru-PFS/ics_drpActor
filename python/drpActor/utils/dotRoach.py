@@ -17,8 +17,12 @@ class DotRoach(object):
 
         self.pathDict = self.initialise(dataRoot)
         self.maskFile = pd.read_csv(maskFile, index_col=0).sort_values('cobraId')
+        self.finalMove = self.makeFinalMove()
         self.keepMoving = keepMoving
+
         self.normFactor = None
+        self.writeFinalMove = True
+        self.doReverse = False
 
         self.detectorMaps = dict()
         self.fiberTraces = dict()
@@ -47,6 +51,12 @@ class DotRoach(object):
         pd.DataFrame([]).to_csv(outputPath)
 
         return dict(dataRoot=dataRoot, allIterations=outputPath, maskFilesRoot=maskFilesRoot)
+
+    def makeFinalMove(self):
+        """Build final move mask."""
+        maskFile = self.maskFile.copy()
+        maskFile['bitMask'] = np.zeros(len(maskFile)).astype('int')
+        return maskFile
 
     def collectFiberData(self, files):
         """Retrieve pfsArm from butler and return flux estimation for each fiber."""
@@ -131,6 +141,10 @@ class DotRoach(object):
         maskFile = toMaskFile(lastIter)
         maskFile.to_csv(os.path.join(self.pathDict['maskFilesRoot'], f'iter{nIter}.csv'))
 
+        # also export finalMove, we dont know when the sequence actually end.
+        if self.writeFinalMove:
+            self.finalMove.to_csv(os.path.join(self.pathDict['maskFilesRoot'], 'finalMove.csv'))
+
     def fluxNormalized(self, newIter):
         """Return flux normalized by the lamp response."""
 
@@ -148,6 +162,20 @@ class DotRoach(object):
 
     def process(self, newIter):
         """Process new iteration, namely decide which cobras need to stop moving."""
+
+        def shouldIStop(fluxRatio, goal=0.003):
+            """"""
+            flag = 0
+
+            if fluxRatio[-1] < goal:
+                flag = 1
+
+            if fluxRatio.min() < 0.5:
+                if fluxRatio[-1] - fluxRatio[-2] > 0:
+                    flag = 2
+
+            return flag
+
         allIterations = self.loadAllIterations()
 
         # first iteration
@@ -161,7 +189,31 @@ class DotRoach(object):
 
         # logical and with previous iteration
         lastIter = allIterations.query(f'visit=={allIterations.visit.max()}').sort_values('cobraId')
-        keepMoving = np.logical_and(lastIter.keepMoving, keepMoving).to_numpy()
+
+        if self.doReverse:
+            self.doReverse = False
+            self.writeFinalMove = False
+            prevState = self.finalMove.bitMask.astype('bool').to_numpy()
+        else:
+            prevState = lastIter.keepMoving
+
+        keepMoving = np.logical_and(prevState, keepMoving).to_numpy()
+
+        for cobraId, df in allIterations.groupby('cobraId'):
+            df = df.sort_values('nIter')
+            new = newIter.set_index('cobraId').loc[cobraId]
+            iCob = cobraId - 1
+            cobraStopped = not keepMoving[iCob]
+            if cobraStopped:
+                continue
+
+            fluxCobra = np.append(df.fluxNorm.to_numpy(), new.fluxNorm)
+            fluxRatio = fluxCobra / fluxCobra[0]
+            flag = shouldIStop(fluxRatio)
+
+            self.finalMove.bitMask[iCob] = int(flag == 2)
+            keepMoving[iCob] = flag == 0
+
         newIter['keepMoving'] = keepMoving
         newIter['nIter'] = lastIter.nIter.to_numpy() + 1
 
@@ -172,6 +224,10 @@ class DotRoach(object):
     def finish(self):
         """ """
         pass
+
+    def reverse(self):
+        """"""
+        self.doReverse = True
 
     def status(self, cmd):
         """ """

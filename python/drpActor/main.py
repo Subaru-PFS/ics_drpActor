@@ -27,9 +27,10 @@ import argparse
 import logging
 import threading
 from functools import partial
+from importlib import reload
 
+import drpActor.utils.engine as drpEngine
 from actorcore.Actor import Actor
-from drpActor.utils.engine import DrpEngine
 from drpActor.utils.files import CCDFile
 from ics.utils.sps.spectroIds import getSite
 from twisted.internet import reactor
@@ -66,7 +67,8 @@ class DrpActor(Actor):
 
     def loadDrpEngine(self):
         """ Return DrpEngine object from config file."""
-        return DrpEngine.fromConfigFile(self)
+        reload(drpEngine)
+        return drpEngine.DrpEngine.fromConfigFile(self)
 
     def reloadConfiguration(self, cmd):
         """ reload butler"""

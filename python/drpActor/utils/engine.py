@@ -146,12 +146,17 @@ class DrpEngine(object):
 
     def stopDotRoach(self, cmd):
         """ stopping dotRoach loop, reactivating autodetrend. """
-        self.dotRoach.finish()
-
-        self.dotRoach = None
         self.doAutoIngest = True
         self.doAutoDetrend = True
         self.doAutoReduce = False
+
+        if not self.dotRoach:
+            cmd.warn('text="no dotRoach loop on-going."')
+            return
+
+        cmd.inform('text="ending dotRoach loop"')
+        self.dotRoach.finish()
+        self.dotRoach = None
 
         self.actor.callCommand('checkLeftOvers')
 

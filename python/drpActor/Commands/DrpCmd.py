@@ -31,6 +31,10 @@ class DrpCmd(object):
             ('startDotRoach', '<dataRoot> <maskFile> [@(keepMoving)]', self.startDotRoach),
             ('stopDotRoach', '', self.stopDotRoach),
             ('processDotRoach', '', self.processDotRoach),
+            ('reverseDotRoach', '', self.reverseDotRoach),
+
+            ('doReduce', '[@off]', self.doReduce),
+            ('doDetrend', '[@off]', self.doDetrend),
 
             ('checkLeftOvers', '', self.checkLeftOvers)
         ]
@@ -118,10 +122,31 @@ class DrpCmd(object):
         self.engine.dotRoach.status(cmd)
         cmd.finish()
 
+    def reverseDotRoach(self, cmd):
+        """ Data is actually processed on the fly, just basically generate status. """
+        self.engine.dotRoach.reverse()
+        cmd.finish()
+
     def stopDotRoach(self, cmd):
         """ Stop dot loop. """
         self.engine.stopDotRoach(cmd)
-        cmd.finish('text="ending dotRoach loop"')
+        cmd.finish()
+
+    def doReduce(self, cmd):
+        """activating/deactivating auto reduction."""
+        cmdKeys = cmd.cmd.keywords
+
+        doReduce = 'off' not in cmdKeys
+        self.engine.doAutoReduce = doReduce
+        cmd.finish(f'text="do drp.autoReduce {doReduce}"')
+
+    def doDetrend(self, cmd):
+        """activating/deactivating auto reduction."""
+        cmdKeys = cmd.cmd.keywords
+
+        doDetrend = 'off' not in cmdKeys
+        self.engine.doAutoDetrend = doDetrend
+        cmd.finish(f'text="do drp.doAutoDetrend {doDetrend}"')
 
     def checkLeftOvers(self, cmd):
         """ Check for non-reduced files."""
