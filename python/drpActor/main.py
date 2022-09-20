@@ -1,27 +1,5 @@
 #!/usr/bin/env python
 
-# Monkey patch twisted version mechanism, which conflicts with
-# lsst.base.packages.getPythonPackages()
-#
-# MUST be called before any twisted import, which both we and
-# actorcore.Actor do.
-#
-def _monkeyPatchIncremental():
-    import incremental
-
-    incremental.Version.saved_cmp = incremental.Version.__cmp__
-
-    def __monkeyCmp__(self, other):
-        if isinstance(other, str):
-            a = self.public()
-            b = other
-            return (a > b) - (a < b)
-        return self.saved_cmp(other)
-
-    incremental.Version.__cmp__ = __monkeyCmp__
-
-
-_monkeyPatchIncremental()
 
 import argparse
 import logging
