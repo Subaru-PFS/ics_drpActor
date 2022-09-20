@@ -20,7 +20,13 @@ class DrpEngine(object):
 
         self.fileBuffer = []
 
-        self.ingestMode = 'copy' if self.actor.site == 'HILO' else 'link'
+        if self.actor.site == 'HILO':
+            self.ingestMode = 'copy'
+            self.ingestFlavour = cmdList.IngestPgsql
+        else:
+            self.ingestMode = 'link'
+            self.ingestFlavour = cmdList.Ingest
+
         self.doAutoIngest = True
         self.doAutoDetrend = True
         self.doAutoReduce = False
@@ -70,8 +76,8 @@ class DrpEngine(object):
         for file in filesPerNight:
             file.ingested = True
 
-        return cmdList.Ingest(self.target, filesPerNight[0].starPath, pfsConfigDir=self.pfsConfigDir,
-                              mode=self.ingestMode)
+        return self.ingestFlavour(self.target, filesPerNight[0].starPath, pfsConfigDir=self.pfsConfigDir,
+                                  mode=self.ingestMode)
 
     def isrRemoval(self, visit):
         """ Proceed with isr removal for that visit."""

@@ -28,6 +28,11 @@ class Ingest(drpCmd.DrpCommand):
         drpCmd.DrpCommand.__init__(self, target, cmdArgs, config=config)
 
 
+class IngestPgsql(Ingest):
+    """ Placeholder for ingest command. """
+    cmdHead = 'ingestPfsImagesPgsql'
+
+
 class Detrend(drpCmd.DrpCommand):
     """ Placeholder for Detrend command. """
     nProcesses = 2
