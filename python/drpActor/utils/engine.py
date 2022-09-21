@@ -19,18 +19,21 @@ class DrpEngine(object):
         self.pfsConfigDir = pfsConfigDir
 
         self.fileBuffer = []
+        self.dotRoach = None
 
+        # default settings
+        self.doAutoIngest = True
+        self.ingestMode = 'link'
+        self.ingestFlavour = cmdList.Ingest
+        self.doAutoDetrend = True
+        self.doAutoReduce = False
+
+        # for hilo base only.
         if self.actor.site == 'HILO':
             self.ingestMode = 'copy'
             self.ingestFlavour = cmdList.IngestPgsql
-        else:
-            self.ingestMode = 'link'
-            self.ingestFlavour = cmdList.Ingest
-
-        self.doAutoIngest = True
-        self.doAutoDetrend = True
-        self.doAutoReduce = False
-        self.dotRoach = None
+            self.doAutoDetrend = False
+            self.doAutoReduce = True
 
         self.butler = self.loadButler()
 
