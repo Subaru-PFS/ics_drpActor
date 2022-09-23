@@ -91,5 +91,8 @@ class ReduceExposure(drpCmd.DrpCommand):
         # we want probably to this from yaml/pfs_instdata but has not been merged yet
         isr = dict(doFlat=False, doSaturationInterpolation=False)
         repair = dict(doCosmicRay=False)
-        config = dict(isr=isr, repair=repair, windowed=windowed, doAdjustDetectorMap=False, doMeasureLines=False)
+        extractSpectra = dict(doCrosstalk=True)
+        config = dict(isr=isr, repair=repair, windowed=windowed, extractSpectra=extractSpectra,
+                      doAdjustDetectorMap=False, doMeasureLines=False)
+
         drpCmd.DrpCommand.__init__(self, target, cmdArgs, config=config)

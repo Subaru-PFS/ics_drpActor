@@ -16,6 +16,7 @@ assembleTask = AssembleCcdTask(config=config)
 from pfs.drp.stella.extractSpectraTask import ExtractSpectraTask
 
 config = ExtractSpectraTask.ConfigClass()
+config.doCrosstalk = True
 config.validate()
 extractSpectra = ExtractSpectraTask(config=config)
 
