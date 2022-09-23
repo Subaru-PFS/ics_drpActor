@@ -4,6 +4,7 @@ import logging
 import time
 
 import lsst.afw.image as afwImage
+import lsst.afw.fits as afwFits
 import numpy as np
 import pandas as pd
 from lsst.ip.isr import AssembleCcdTask
@@ -50,7 +51,7 @@ def getWindowedFluxes(butler, dataId, fiberTrace, detectorMap, darkVariance=30, 
         camera = butler.get("camera")
         fileName = getPFSA(dataId)
         raw = afwImage.ImageF.readFits(fileName)
-        md = afwImage.readMetadata(fileName)
+        md = afwFits.readMetadata(fileName)
 
         exp = afwImage.makeExposure(afwImage.makeMaskedImage(raw))
         exp.setMetadata(md)
