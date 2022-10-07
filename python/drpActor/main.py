@@ -22,7 +22,7 @@ class DrpActor(Actor):
         #
         specIds = list(range(1, 5))
         self.cams = [f'b{specId}' for specId in specIds] + [f'r{specId}' for specId in specIds]
-        self.site = DrpActor.allSites[getSite()]
+        self.site = DrpActor.allSites[getSite()][0]
 
         Actor.__init__(self, name,
                        productName=productName,
