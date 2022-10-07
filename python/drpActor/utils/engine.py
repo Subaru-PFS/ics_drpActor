@@ -39,9 +39,7 @@ class DrpEngine(object):
 
     @classmethod
     def fromConfigFile(cls, actor):
-        argNames = ['target', 'CALIB', 'rerun', 'pfsConfigDir']
-        args = [actor.config.get(actor.site, arg).strip() for arg in argNames]
-        return cls(actor, *args)
+        return cls(actor, **actor.actorConfig[actor.site])
 
     def addFile(self, file):
         """ Add new file into the buffer. """
