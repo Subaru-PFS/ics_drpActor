@@ -3,7 +3,7 @@ import os
 from ics.utils.sps.spectroIds import SpectroIds
 
 
-class CCDFile(object):
+class PfsFile(object):
     """ just a place holder for ccd file"""
     fromArmNum = dict([(v, k) for k, v in SpectroIds.validArms.items()])
 
@@ -14,19 +14,30 @@ class CCDFile(object):
         self.visit = int(filename[4:10])
         self.specNum = int(filename[10])
         self.armNum = int(filename[11])
-        self.arm = CCDFile.fromArmNum[self.armNum]
+        self.arm = PfsFile.fromArmNum[self.armNum]
 
         self.ingested = False
         self.detrended = False
 
     @property
     def filepath(self):
-        return os.path.join(self.root, self.night, 'sps', self.filename)
+        return os.path.join(self.root, self.night, self.filename)
 
     @property
     def starPath(self):
-        return os.path.join(self.root, self.night, 'sps', f'{self.filename[:10]}*.fits')
+        return f'{self.filepath[:-7]}*.fits'
 
     @property
     def dataId(self):
         return dict(visit=self.visit, arm=self.arm, spectrograph=self.specNum)
+
+
+class CCDFile(PfsFile):
+
+    @property
+    def filepath(self):
+        return os.path.join(self.root, self.night, 'sps', self.filename)
+
+
+class HxFile(PfsFile):
+    pass

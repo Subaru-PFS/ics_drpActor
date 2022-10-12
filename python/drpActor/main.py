@@ -3,13 +3,14 @@
 
 import argparse
 import logging
+import os
 import threading
 from functools import partial
 from importlib import reload
 
 import drpActor.utils.engine as drpEngine
 from actorcore.Actor import Actor
-from drpActor.utils.files import CCDFile
+from drpActor.utils.files import CCDFile, HxFile
 from ics.utils.sps.spectroIds import getSite
 from twisted.internet import reactor
 
@@ -21,25 +22,35 @@ class DrpActor(Actor):
         # This sets up the connections to/from the hub, the logger, and the twisted reactor.
         #
         specIds = list(range(1, 5))
-        self.cams = [f'b{specId}' for specId in specIds] + [f'r{specId}' for specId in specIds]
+        vis = [f'b{specId}' for specId in specIds] + [f'r{specId}' for specId in specIds]
+        nir = [f'n{specId}' for specId in specIds]
+
+        self.ccds = [f'ccd_{cam}' for cam in vis]
+        self.hxs = [f'hx_{cam}' for cam in nir]
+
         self.site = DrpActor.allSites[getSite()][0]
 
         Actor.__init__(self, name,
                        productName=productName,
-                       configFile=configFile, modelNames=['ccd_%s' % cam for cam in self.cams] + ['sps', 'iic'])
+                       configFile=configFile, modelNames=self.ccds + self.hxs + ['sps', 'iic'])
 
         self.everConnected = False
 
     def connectionMade(self):
         """Called when the actor connection has been established: wire in callbacks."""
         if self.everConnected is False:
-            self.logger.info('attaching callbacks cams=%s' % (','.join(self.cams)))
 
-            for cam in self.cams:
-                self.models['ccd_%s' % cam].keyVarDict['filepath'].addCallback(self.ccdFilepath, callNow=False)
+            for ccd in self.ccds:
+                self.models[ccd].keyVarDict['filepath'].addCallback(self.ccdFilepath, callNow=False)
+                self.logger.info(f'{ccd}.filepath callback attached')
+
+            for hx in self.hxs:
+                self.models[hx].keyVarDict['filename'].addCallback(self.hxFilepath, callNow=False)
+                self.logger.info(f'{hx}.filename callback attached')
 
             self.models['sps'].keyVarDict['fileIds'].addCallback(self.spsFileIds, callNow=False)
             self.models['iic'].keyVarDict['designId'].addCallback(self.newPfsDesign, callNow=False)
+
             self.engine = self.loadDrpEngine()
             self.everConnected = True
 
@@ -59,11 +70,24 @@ class DrpActor(Actor):
         except ValueError:
             return
 
-        self.logger.info(f'newfilepath: {root}, {night}, {fname}. threads={threading.active_count()}')
+        self.logger.info(f'newfilepath: {root}, {night}, {fname} ; threads={threading.active_count()}')
         self.engine.addFile(CCDFile(root, night, fname))
 
         if False:
             reactor.callLater(5, partial(self.callCommand, 'checkLeftOvers'))
+
+    def hxFilepath(self, keyvar):
+        """ CCD Filepath callback"""
+        try:
+            filepath = keyvar.getValue()
+        except ValueError:
+            return
+
+        rootNight, fname = os.path.split(filepath)
+        root, night = os.path.split(rootNight)
+
+        self.logger.info(f'newfilepath: {filepath} ; threads={threading.active_count()}')
+        self.engine.addFile(HxFile(root, night, fname))
 
     def spsFileIds(self, keyvar):
         """ spsFileIds callback. """

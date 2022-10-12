@@ -1,9 +1,11 @@
+import logging
 import os
 import shutil
 from importlib import reload
 
 import drpActor.utils.cmdList as cmdList
 import drpActor.utils.dotRoach as dotRoach
+import drpActor.utils.tasks as drpTasks
 import lsst.daf.persistence as dafPersist
 
 reload(cmdList)
@@ -20,6 +22,7 @@ class DrpEngine(object):
 
         self.fileBuffer = []
         self.dotRoach = None
+        self.defects = dict()
 
         # default settings
         self.doAutoIngest = True
@@ -102,16 +105,27 @@ class DrpEngine(object):
                 cmd = self.ingestPerNight(filesPerNight)
                 genCommandStatus('ingest', *cmd.run())
 
+        nirFiles = [file for file in files if file.arm == 'n']
+        ccdFiles = list(set(files) - set(nirFiles))
+
         if self.doAutoDetrend:
-            options = self.lookupMetaData(files[0])
-            cmd = cmdList.Detrend(self.target, self.CALIB, self.rerun, visit, **options)
-            genCommandStatus('detrend', *cmd.run())
-            self.genFilesKeywordForDisplay()
+            if ccdFiles:
+                options = self.lookupMetaData(files[0])
+                cmd = cmdList.Detrend(self.target, self.CALIB, self.rerun, visit, **options)
+                genCommandStatus('detrend', *cmd.run())
+                self.genFilesKeywordForDisplay()
+
+            for file in nirFiles:
+                raw = self.butler.get('raw', dataId=file.dataId)
+                defects = self.getDefects(file.dataId)
+                calexp = drpTasks.doIPCTask.run(raw, defects=defects).exposure
+                self.butler.put(calexp, 'calexp', file.dataId)
 
         if self.doAutoReduce:
-            options = self.lookupMetaData(files[0])
-            cmd = cmdList.ReduceExposure(self.target, self.CALIB, self.rerun, visit, **options)
-            genCommandStatus('reduceExposure', *cmd.run())
+            if ccdFiles:
+                options = self.lookupMetaData(files[0])
+                cmd = cmdList.ReduceExposure(self.target, self.CALIB, self.rerun, visit, **options)
+                genCommandStatus('reduceExposure', *cmd.run())
 
         if self.dotRoach is not None:
             self.dotRoach.runAway(files)
@@ -144,6 +158,18 @@ class DrpEngine(object):
                 self.actor.logger.info(f'{fileName} copied {self.pfsConfigDir} successfully !')
             except Exception as e:
                 self.actor.logger.warning(f'failed to copy from {designPath} to {self.pfsConfigDir} with {e}')
+
+    def getDefects(self, dataId):
+        """getting defects from butler or memory."""
+        cameraKey = dataId['spectrograph'], dataId['arm']
+
+        if cameraKey not in self.defects:
+            logging.info(f'loading defects for {cameraKey}')
+            defects = self.butler.get("defects", dataId)
+
+            self.defects[cameraKey] = defects
+
+        return self.defects[cameraKey]
 
     def startDotRoach(self, dataRoot, maskFile, keepMoving=False):
         """ Starting dotRoach loop, deactivating autodetrend. """
