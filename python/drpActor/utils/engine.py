@@ -113,13 +113,16 @@ class DrpEngine(object):
                 options = self.lookupMetaData(files[0])
                 cmd = cmdList.Detrend(self.target, self.CALIB, self.rerun, visit, **options)
                 genCommandStatus('detrend', *cmd.run())
-                self.genFilesKeywordForDisplay()
 
             for file in nirFiles:
                 raw = self.butler.get('raw', dataId=file.dataId)
                 defects = self.getDefects(file.dataId)
+                logging.info(f'running doIPCTask for {file.dataId}')
                 calexp = drpTasks.doIPCTask.run(raw, defects=defects).exposure
+                logging.info(f'doIPCTask done, putting output to butler.')
                 self.butler.put(calexp, 'calexp', file.dataId)
+
+            self.genFilesKeywordForDisplay()
 
         if self.doAutoReduce:
             if ccdFiles:
