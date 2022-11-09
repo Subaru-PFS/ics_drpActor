@@ -29,7 +29,7 @@ class DrpEngine(object):
         self.doAutoReduce = False
 
         # for hilo base only.
-        if self.actor.site == 'HILO':
+        if self.actor.site == 'H':
             self.ingestMode = 'copy'
             self.ingestFlavour = cmdList.IngestPgsql
             self.doAutoDetrend = False
