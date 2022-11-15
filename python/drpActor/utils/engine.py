@@ -140,7 +140,7 @@ class DrpEngine(object):
         for file in self.fileBuffer:
 
             try:
-                isrPath = self.butler.getUri('calexp', arm=file.arm, visit=file.visit)
+                isrPath = self.butler.getUri('calexp', **file.dataId)
                 toRemove.append(file)
             except:
                 isrPath = False
