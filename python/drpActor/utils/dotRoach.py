@@ -1,4 +1,5 @@
 import logging
+import multiprocessing
 import os
 
 import drpActor.utils.extractFlux as extractFlux
@@ -14,6 +15,7 @@ class DotRoach(object):
     def __init__(self, engine, dataRoot, maskFile, keepMoving=False):
         """ Placeholder to handle DotRoach loop"""
         self.engine = engine
+        self.processManager = multiprocessing.Manager()
 
         self.pathDict = self.initialise(dataRoot)
         self.maskFile = pd.read_csv(maskFile, index_col=0).sort_values('cobraId')
@@ -60,7 +62,13 @@ class DotRoach(object):
 
     def collectFiberData(self, files):
         """Retrieve pfsArm from butler and return flux estimation for each fiber."""
-        fluxPerFiber = []
+        fluxPerFiber = self.processManager.list()
+        jobs = []
+
+        def parallelize(butler, dataId, fiberTrace, detectorMap, fluxPerFiber):
+            flux = extractFlux.getWindowedFluxes(butler, dataId,
+                                                 fiberTrace=fiberTrace, detectorMap=detectorMap, useButler=False)
+            fluxPerFiber.append(flux)
 
         # load fiberTraces on first iteration presumably.
         if not self.fiberTraces:
@@ -72,9 +80,13 @@ class DotRoach(object):
 
         for file in files:
             fiberTrace, detectorMap = self.getFiberTrace(file.dataId)
-            flux = extractFlux.getWindowedFluxes(self.engine.butler, file.dataId,
-                                                 fiberTrace=fiberTrace, detectorMap=detectorMap, useButler=False)
-            fluxPerFiber.append(flux)
+            p = multiprocessing.Process(target=parallelize,
+                                        args=(self.engine.butler, file.dataId, fiberTrace, detectorMap, fluxPerFiber))
+            jobs.append(p)
+            p.start()
+
+        for proc in jobs:
+            proc.join()
 
         return pd.concat(fluxPerFiber).groupby('fiberId').sum().reset_index()
 
