@@ -1,8 +1,9 @@
+setupOptional(pfs_pipe2d)
+
 setupRequired(tron_actorcore)
-setupRequired(ics_utils)
 setupRequired(ics_actorkeys)
 
-setupOptional(pfs_pipe2d)
+
 
 pathPrepend(PATH, ${PRODUCT_DIR}/bin)
 pathPrepend(PYTHONPATH, ${PRODUCT_DIR}/python)
