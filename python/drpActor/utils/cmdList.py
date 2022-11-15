@@ -1,6 +1,6 @@
 import drpActor.utils.cmd as drpCmd
 
-nProcesses = 2
+nProcesses = 4
 
 
 class Ingest(drpCmd.DrpCommand):
