@@ -152,7 +152,6 @@ class DotRoach(object):
         maskFile = toMaskFile(lastIter)
         maskFile.to_csv(os.path.join(self.pathDict['maskFilesRoot'], f'iter{nIter}.csv'))
 
-
     def fluxNormalized(self, newIter):
         """Return flux normalized by the lamp response."""
 
@@ -229,7 +228,10 @@ class DotRoach(object):
 
     def finish(self):
         """ """
-        pass
+        rootDir, __ = os.path.split(self.pathDict["dataRoot"])
+        # renaming current to dedicated path.
+        visitMin = self.loadAllIterations().visit.min()
+        os.rename(self.pathDict["dataRoot"], os.path.join(rootDir, f'v{str(visitMin).zfill(6)}'))
 
     def reverse(self):
         """"""
