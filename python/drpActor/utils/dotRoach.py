@@ -157,7 +157,10 @@ class DotRoach(object):
 
         def fluxFromMonitoringFibers():
             """Calculate flux from homed/disabled cobras."""
-            return newIter.set_index('fiberId').reindex(self.monitoringFiberIds).dropna().flux.sum()
+            monitoring = newIter.set_index('fiberId').reindex(self.monitoringFiberIds).dropna().flux.sum()
+            # setting flux to 1 in case I have actually no monitoring fibers available.
+            monitoring = 1 if not monitoring else monitoring
+            return monitoring
 
         lampResponse = fluxFromMonitoringFibers()
 
