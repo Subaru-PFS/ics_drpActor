@@ -93,6 +93,6 @@ class ReduceExposure(drpCmd.DrpCommand):
         repair = dict(doCosmicRay=False)
         extractSpectra = dict(doCrosstalk=True)
         config = dict(isr=isr, repair=repair, windowed=windowed, extractSpectra=extractSpectra,
-                      doAdjustDetectorMap=not windowed, doMeasureLines=False)
+                      doAdjustDetectorMap=False, doMeasureLines=False)
 
         drpCmd.DrpCommand.__init__(self, target, cmdArgs, config=config)
