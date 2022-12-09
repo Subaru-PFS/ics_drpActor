@@ -19,11 +19,12 @@ class DotRoach(object):
 
         self.pathDict = self.initialise(dataRoot)
         self.maskFile = pd.read_csv(maskFile, index_col=0).sort_values('cobraId')
-        self.finalMove = self.makeFinalMove()
+        self.didOvershoot = self.allStoppedMaskFile()
         self.keepMoving = keepMoving
 
         self.normFactor = None
-        self.doReverse = False
+        self.maxIterInPhase1 = -1
+        self.phase = 'phase1'
 
         self.detectorMaps = dict()
         self.fiberTraces = dict()
@@ -33,6 +34,10 @@ class DotRoach(object):
         # bitMask 0, means at Home. disabled / broken should already be at home.
         atHome = self.maskFile[self.maskFile.bitMask == 0].fiberId
         return list(atHome)
+
+    @property
+    def strategy(self):
+        return self.phase[:6]
 
     def loadAllIterations(self):
         """Load allIterations dataframe."""
@@ -53,7 +58,7 @@ class DotRoach(object):
 
         return dict(dataRoot=dataRoot, allIterations=outputPath, maskFilesRoot=maskFilesRoot)
 
-    def makeFinalMove(self):
+    def allStoppedMaskFile(self):
         """Build final move mask."""
         maskFile = self.maskFile.copy()
         maskFile['bitMask'] = np.zeros(len(maskFile)).astype('int')
@@ -173,16 +178,20 @@ class DotRoach(object):
     def process(self, newIter):
         """Process new iteration, namely decide which cobras need to stop moving."""
 
-        def shouldIStop(fluxRatio, goal=0.003):
+        def shouldIStop(fluxRatio, goalInPhase1=0.003):
             """"""
-            flag = 0
+            gradient = fluxRatio[-1] - fluxRatio[-2]
+            gain = gradient / fluxRatio[-1]
+            ratioInPhase1 = fluxRatio[:(self.maxIterInPhase1 + 1)]
 
-            if fluxRatio[-1] < goal:
+            if self.strategy == 'phase1' and fluxRatio[-1] < goalInPhase1:
                 flag = 1
-
-            if fluxRatio.min() < 0.5:
-                if fluxRatio[-1] - fluxRatio[-2] > 0:
-                    flag = 2
+            elif self.strategy == 'phase2' and (gain < 0.05 and fluxRatio[-1] < np.min(ratioInPhase1)):
+                flag = 1
+            elif fluxRatio.min() < 0.5 and gradient > 0:
+                flag = 2
+            else:
+                flag = 0
 
             return flag
 
@@ -215,12 +224,16 @@ class DotRoach(object):
             fluxRatio = fluxCobra / fluxCobra[0]
             flag = shouldIStop(fluxRatio)
 
-            self.finalMove.bitMask[iCob] = int(flag == 2)
+            self.didOvershoot.bitMask[iCob] = int(flag == 2)
             keepMoving[iCob] = flag == 0
 
-        if self.doReverse:
-            self.doReverse = False
-            keepMoving = self.finalMove.bitMask.astype('bool').to_numpy()
+        if self.phase == 'phase1->phase2':
+            self.phase = 'phase2'
+            keepMoving = self.didOvershoot.bitMask.astype('bool').to_numpy()
+
+        elif self.phase == 'phase2->phase3':
+            self.phase = 'phase3'
+            keepMoving = self.didOvershoot.bitMask.astype('bool').to_numpy()
 
         newIter['keepMoving'] = keepMoving
         newIter['nIter'] = lastIter.nIter.to_numpy() + 1
@@ -236,9 +249,14 @@ class DotRoach(object):
         visitMin = self.loadAllIterations().visit.min()
         os.rename(self.pathDict["dataRoot"], os.path.join(rootDir, f'v{str(visitMin).zfill(6)}'))
 
-    def reverse(self):
+    def phase2(self):
         """"""
-        self.doReverse = True
+        self.phase = 'phase1->phase2'
+        self.maxIterInPhase1 = self.loadAllIterations().nIter.max() + 1
+
+    def phase3(self):
+        """"""
+        self.phase = 'phase2->phase3'
 
     def status(self, cmd):
         """ """
