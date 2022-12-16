@@ -26,14 +26,13 @@ class DrpEngine(object):
 
         # default settings
         self.doAutoIngest = True
-        self.ingestMode = 'link'
+        self.ingestMode = 'copy'
         self.ingestFlavour = cmdList.Ingest
         self.doAutoDetrend = True
         self.doAutoReduce = False
 
         # for hilo base only.
         if self.actor.site == 'H':
-            self.ingestMode = 'copy'
             self.ingestFlavour = cmdList.IngestPgsql
             self.doAutoDetrend = False
             self.doAutoReduce = True
