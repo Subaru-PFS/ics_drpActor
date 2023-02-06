@@ -13,12 +13,13 @@ reload(dotRoach)
 
 
 class DrpEngine(object):
-    def __init__(self, actor, target, CALIB, rerun, pfsConfigDir):
+    def __init__(self, actor, target, CALIB, rerun, pfsConfigDir, nProcesses):
         self.actor = actor
         self.target = target
         self.CALIB = CALIB
         self.rerun = rerun
         self.pfsConfigDir = pfsConfigDir
+        self.nProcesses = nProcesses
 
         self.fileBuffer = []
         self.dotRoach = None
@@ -79,8 +80,7 @@ class DrpEngine(object):
         for file in filesPerNight:
             file.ingested = True
 
-        return self.ingestFlavour(self.target, filesPerNight[0].starPath, pfsConfigDir=self.pfsConfigDir,
-                                  mode=self.ingestMode)
+        return self.ingestFlavour(self, filesPerNight[0].starPath)
 
     def isrRemoval(self, visit):
         """ Proceed with isr removal for that visit."""
@@ -110,7 +110,7 @@ class DrpEngine(object):
         if self.doAutoDetrend:
             if ccdFiles:
                 options = self.lookupMetaData(files[0])
-                cmd = cmdList.Detrend(self.target, self.CALIB, self.rerun, visit, **options)
+                cmd = cmdList.Detrend(self, visit, **options)
                 genCommandStatus('detrend', *cmd.run())
 
             for file in nirFiles:
