@@ -1,3 +1,4 @@
+import concurrent.futures
 import logging
 import os
 import shutil
@@ -10,6 +11,20 @@ import lsst.daf.persistence as dafPersist
 
 reload(cmdList)
 reload(dotRoach)
+from twisted.internet import reactor
+
+
+def doIPCTask(dataId):
+    """Doing IPC task, note that this is called from multiprocessing, there isn't access to the actual DrpEngine
+    instance."""
+    raw = drpEngine.butler.get('raw', dataId=dataId)
+    defects = drpEngine.getDefects(dataId)
+
+    logging.info(f'running doIPCTask for {dataId}')
+    calexp = drpTasks.doIPCTask.run(raw, defects=defects).exposure
+
+    logging.info(f'doIPCTask done, putting output to butler.')
+    drpEngine.butler.put(calexp, 'calexp', dataId)
 
 
 class DrpEngine(object):
@@ -25,6 +40,8 @@ class DrpEngine(object):
         self.dotRoach = None
         self.defects = dict()
 
+        self.executor = concurrent.futures.ProcessPoolExecutor(nProcesses)
+
         # default settings
         self.doAutoIngest = True
         self.ingestMode = 'copy'
@@ -39,6 +56,10 @@ class DrpEngine(object):
             self.doAutoReduce = True
 
         self.butler = self.loadButler()
+
+        # declaring global drpEngine for multiprocessing.
+        global drpEngine
+        drpEngine = self
 
     @classmethod
     def fromConfigFile(cls, actor):
@@ -112,16 +133,16 @@ class DrpEngine(object):
                 options = self.lookupMetaData(files[0])
                 cmd = cmdList.Detrend(self, visit, **options)
                 genCommandStatus('detrend', *cmd.run())
+                self.genFilesKeywordForDisplay()
 
-            for file in nirFiles:
-                raw = self.butler.get('raw', dataId=file.dataId)
-                defects = self.getDefects(file.dataId)
-                logging.info(f'running doIPCTask for {file.dataId}')
-                calexp = drpTasks.doIPCTask.run(raw, defects=defects).exposure
-                logging.info(f'doIPCTask done, putting output to butler.')
-                self.butler.put(calexp, 'calexp', file.dataId)
-
-            self.genFilesKeywordForDisplay()
+            if nirFiles:
+                # loading defects first, should be done only once.
+                self.getDefects(nirFiles[0].dataId)
+                # calling multiprocessing to do IPCTask.
+                for file in nirFiles:
+                    self.executor.submit(doIPCTask, file.dataId)
+                # generate keyword from this thread, after some time, 180 ~= total processing time.
+                reactor.callLater(180, self.genFilesKeywordForDisplay)
 
         if self.doAutoReduce:
             if ccdFiles:
