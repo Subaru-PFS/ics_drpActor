@@ -94,7 +94,7 @@ class DrpEngine(object):
         return dict(windowed=isWindowed(md))
 
     def ingestPerNight(self, filesPerNight):
-        """ ingest multiple files at the same time."""
+        """Ingest multiple files at the same time."""
         if all([file.ingested for file in filesPerNight]):
             return
 
@@ -104,11 +104,15 @@ class DrpEngine(object):
         return self.ingestFlavour(self, filesPerNight[0].starPath)
 
     def isrRemoval(self, visit):
-        """ Proceed with isr removal for that visit."""
+        """Proceed with isr removal for that visit."""
 
         def genCommandStatus(cmd, status, statusStr, timing):
-            """ Just generate simple status keyword for each visit."""
+            """Just generate simple status keyword for each visit."""
             self.actor.bcast.inform(f'{cmd}Status={visit},{status},{statusStr},{timing}')
+
+        def nirDetrendDoneCB(*args, **kwargs):
+            """CallBack called whenever an H4 image is detrended."""
+            reactor.callLater(2, self.genFilesKeywordForDisplay)
 
         # get exposure with same visit
         files = [file for file in self.fileBuffer if file.visit == visit]
@@ -140,9 +144,8 @@ class DrpEngine(object):
                 self.getDefects(nirFiles[0].dataId)
                 # calling multiprocessing to do IPCTask.
                 for file in nirFiles:
-                    self.executor.submit(doIPCTask, file.dataId)
-                # generate keyword from this thread, after some time, 180 ~= total processing time.
-                reactor.callLater(180, self.genFilesKeywordForDisplay)
+                    future = self.executor.submit(doIPCTask, file.dataId)
+                    future.add_done_callback(nirDetrendDoneCB)
 
         if self.doAutoReduce:
             if ccdFiles:
