@@ -1,13 +1,11 @@
 import drpActor.utils.cmd as drpCmd
 
-nProcesses = 4
-
 
 class Ingest(drpCmd.DrpCommand):
     """ Placeholder for ingest command. """
     cmdHead = 'ingestPfsImages'
 
-    def __init__(self, target, filepath, pfsConfigDir, mode='link'):
+    def __init__(self, engine, filepath):
         """Enable string interpolation for config file
 
         Parameters
@@ -22,10 +20,10 @@ class Ingest(drpCmd.DrpCommand):
            Mode of delivering the files to their destination.
         """
 
-        cmdArgs = f"{filepath} --processes {nProcesses} --pfsConfigDir {pfsConfigDir} --mode={mode}"
+        cmdArgs = f"{filepath} --processes {engine.nProcesses} --pfsConfigDir {engine.pfsConfigDir} --mode={engine.ingestMode}"
         # config = dict(clobber=True, register=dict(ignore=True))
         config = dict()
-        drpCmd.DrpCommand.__init__(self, target, cmdArgs, config=config)
+        drpCmd.DrpCommand.__init__(self, engine.target, cmdArgs, config=config)
 
 
 class IngestPgsql(Ingest):
@@ -35,10 +33,9 @@ class IngestPgsql(Ingest):
 
 class Detrend(drpCmd.DrpCommand):
     """ Placeholder for Detrend command. """
-    nProcesses = 2
     cmdHead = 'detrend'
 
-    def __init__(self, target, CALIB, rerun, visit, windowed=False):
+    def __init__(self, engine, visit, windowed=False):
         """Perform ISR on given exposure.
 
         Parameters
@@ -52,7 +49,7 @@ class Detrend(drpCmd.DrpCommand):
         visit : `int`
            PFS visit.
         """
-        cmdArgs = f"--processes {nProcesses} --calib  {target}/{CALIB} --rerun {rerun} " \
+        cmdArgs = f"--processes {engine.nProcesses} --calib  {engine.target}/{engine.CALIB} --rerun {engine.rerun} " \
                   f"--id visit={visit} --clobber-config --no-versions"
 
         # we want probably to this from yaml/pfs_instdata but has not been merged yet
@@ -64,14 +61,14 @@ class Detrend(drpCmd.DrpCommand):
         repair = dict(doCosmicRay=False)
         config = dict(isr=isr, repair=repair)
 
-        drpCmd.DrpCommand.__init__(self, target, cmdArgs, config=config)
+        drpCmd.DrpCommand.__init__(self, engine.target, cmdArgs, config=config)
 
 
 class ReduceExposure(drpCmd.DrpCommand):
     """ Placeholder for ReduceExposure command. """
     cmdHead = 'reduceExposure'
 
-    def __init__(self, target, CALIB, rerun, visit, windowed=False):
+    def __init__(self, engine, visit, windowed=False):
         """Reduce spectra from given exposure.
 
         Parameters
@@ -85,7 +82,7 @@ class ReduceExposure(drpCmd.DrpCommand):
         visit : `int`
            PFS visit.
         """
-        cmdArgs = f"--processes {nProcesses} --calib {target}/{CALIB} --rerun {rerun} " \
+        cmdArgs = f"--processes {engine.nProcesses} --calib {engine.target}/{engine.CALIB} --rerun {engine.rerun} " \
                   f"--id visit={visit} --clobber-config --no-versions"
 
         # we want probably to this from yaml/pfs_instdata but has not been merged yet
@@ -95,4 +92,4 @@ class ReduceExposure(drpCmd.DrpCommand):
         config = dict(isr=isr, repair=repair, windowed=windowed, extractSpectra=extractSpectra,
                       doAdjustDetectorMap=False, doMeasureLines=False)
 
-        drpCmd.DrpCommand.__init__(self, target, cmdArgs, config=config)
+        drpCmd.DrpCommand.__init__(self, engine.target, cmdArgs, config=config)
