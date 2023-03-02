@@ -43,6 +43,7 @@ class DrpEngine(object):
         self.executor = concurrent.futures.ProcessPoolExecutor(nProcesses)
 
         # default settings
+        self.doCopyDesignToPfsConfigDir = False
         self.doAutoIngest = True
         self.ingestMode = 'copy'
         self.ingestFlavour = cmdList.Ingest
@@ -175,6 +176,9 @@ class DrpEngine(object):
 
     def newPfsDesign(self, designId):
         """New PfsDesign has been declared, copy it to the repo if new."""
+        if not self.doCopyDesignToPfsConfigDir:
+            return
+
         fileName = f'pfsDesign-0x{designId:016x}.fits'
 
         if not os.path.isfile(os.path.join(self.pfsConfigDir, fileName)):
