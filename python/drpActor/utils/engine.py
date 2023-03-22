@@ -17,11 +17,12 @@ from twisted.internet import reactor
 def doIPCTask(dataId):
     """Doing IPC task, note that this is called from multiprocessing, there isn't access to the actual DrpEngine
     instance."""
-    raw = drpEngine.butler.get('raw', dataId=dataId)
+    # raw image is actually :  hdu[-1] - hdu[0], both reference pixel subtracted, reset frame is ignored.
+    cds = drpEngine.butler.get('raw', dataId=dataId)
     defects = drpEngine.getDefects(dataId)
 
     logging.info(f'running doIPCTask for {dataId}')
-    calexp = drpTasks.doIPCTask.run(raw, defects=defects).exposure
+    calexp = drpTasks.doIPCTask.run(cds, defects=defects).exposure
 
     logging.info(f'doIPCTask done, putting output to butler.')
     drpEngine.butler.put(calexp, 'calexp', dataId)
@@ -94,15 +95,20 @@ class DrpEngine(object):
         md = self.butler.get('raw_md', **file.dataId)
         return dict(windowed=isWindowed(md))
 
-    def ingestPerNight(self, filesPerNight):
+    def ingestAll(self, files):
         """Ingest multiple files at the same time."""
-        if all([file.ingested for file in filesPerNight]):
+        if all([file.ingested for file in files]):
             return
 
-        for file in filesPerNight:
-            file.ingested = True
+        ret = self.ingestFlavour(self, files)
+        for file in files:
+            try:
+                self.butler.getUri('raw', **file.dataId)
+                file.ingested = True
+            except:
+                file.ingested = False
 
-        return self.ingestFlavour(self, filesPerNight[0].starPath)
+        return ret
 
     def isrRemoval(self, visit):
         """Proceed with isr removal for that visit."""
@@ -124,35 +130,39 @@ class DrpEngine(object):
         [visit] = list(set([file.visit for file in files]))
 
         if self.doAutoIngest:
-            # seems unlikely to have separate night for one visit for still possible.
-            for night in nights:
-                filesPerNight = [file for file in files if file.night == night]
-                cmd = self.ingestPerNight(filesPerNight)
-                genCommandStatus('ingest', *cmd.run())
+            cmd = self.ingestFlavour(self, files)
+            genCommandStatus('ingest', *cmd.run())
 
-        nirFiles = [file for file in files if file.arm == 'n']
-        ccdFiles = list(set(files) - set(nirFiles))
-
-        if self.doAutoDetrend:
-            if ccdFiles:
-                options = self.lookupMetaData(files[0])
-                cmd = cmdList.Detrend(self, visit, **options)
-                genCommandStatus('detrend', *cmd.run())
-                self.genFilesKeywordForDisplay()
-
-            if nirFiles:
-                # loading defects first, should be done only once.
-                self.getDefects(nirFiles[0].dataId)
-                # calling multiprocessing to do IPCTask.
-                for file in nirFiles:
-                    future = self.executor.submit(doIPCTask, file.dataId)
-                    future.add_done_callback(nirDetrendDoneCB)
-
-        if self.doAutoReduce:
-            if ccdFiles:
-                options = self.lookupMetaData(files[0])
-                cmd = cmdList.ReduceExposure(self.target, self.CALIB, self.rerun, visit, **options)
-                genCommandStatus('reduceExposure', *cmd.run())
+        # if self.doAutoIngest:
+        #     # seems unlikely to have separate night for one visit for still possible.
+        #     for night in nights:
+        #         filesPerNight = [file for file in files if file.night == night]
+        #         cmd = self.ingestPerNight(filesPerNight)
+        #         genCommandStatus('ingest', *cmd.run())
+        #
+        # nirFiles = [file for file in files if file.arm == 'n']
+        # ccdFiles = list(set(files) - set(nirFiles))
+        #
+        # if self.doAutoDetrend:
+        #     if ccdFiles:
+        #         options = self.lookupMetaData(files[0])
+        #         cmd = cmdList.Detrend(self, visit, **options)
+        #         genCommandStatus('detrend', *cmd.run())
+        #         self.genFilesKeywordForDisplay()
+        #
+        #     if nirFiles:
+        #         # loading defects first, should be done only once.
+        #         self.getDefects(nirFiles[0].dataId)
+        #         # calling multiprocessing to do IPCTask.
+        #         for file in nirFiles:
+        #             future = self.executor.submit(doIPCTask, file.dataId)
+        #             future.add_done_callback(nirDetrendDoneCB)
+        #
+        # if self.doAutoReduce:
+        #     if ccdFiles:
+        #         options = self.lookupMetaData(files[0])
+        #         cmd = cmdList.ReduceExposure(self.target, self.CALIB, self.rerun, visit, **options)
+        #         genCommandStatus('reduceExposure', *cmd.run())
 
         if self.dotRoach is not None:
             self.dotRoach.runAway(files)
