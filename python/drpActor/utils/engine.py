@@ -46,7 +46,7 @@ class DrpEngine(object):
         # default settings
         self.doCopyDesignToPfsConfigDir = False
         self.doAutoIngest = True
-        self.ingestMode = 'copy'
+        self.ingestMode = 'link'
         self.ingestFlavour = cmdList.Ingest
         self.doAutoDetrend = True
         self.doAutoReduce = False
@@ -54,6 +54,7 @@ class DrpEngine(object):
         # for hilo base only.
         if self.actor.site == 'H':
             self.ingestFlavour = cmdList.IngestPgsql
+            self.ingestMode = 'copy'
             self.doAutoDetrend = False
             self.doAutoReduce = True
 
