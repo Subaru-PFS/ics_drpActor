@@ -87,7 +87,10 @@ class DrpActor(Actor):
         root, night = os.path.split(rootNight)
 
         self.logger.info(f'newfilepath: {filepath} ; threads={threading.active_count()}')
-        self.engine.addFile(HxFile(root, night, fname))
+        new = HxFile(root, night, fname)
+        self.engine.addFile(new)
+
+        reactor.callLater(2, self.engine.isrRemoval, new.visit)
 
     def spsFileIds(self, keyvar):
         """ spsFileIds callback. """
