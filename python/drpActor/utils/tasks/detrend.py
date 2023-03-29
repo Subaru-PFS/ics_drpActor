@@ -3,15 +3,6 @@ import os
 
 from lsst.obs.pfs.detrendTask import DetrendTask as BaseTask
 
-isr = dict(doBias=False,
-           doDark=False,
-           doFlat=False,
-           doDefect=False,
-           )
-
-repair = dict(doCosmicRay=False)
-userConfig = dict(isr=isr, repair=repair)
-
 
 class DetrendTask(BaseTask):
     def __init__(self, tasksBox, parsedCmd):
@@ -41,7 +32,10 @@ class DetrendTask(BaseTask):
     def mergeConfig(self, userConfig):
         # merging config.
         for key, cfg in userConfig.items():
-            getattr(self.parsedCmd.config, key).update(**cfg)
+            if isinstance(cfg, dict):
+                getattr(self.parsedCmd.config, key).update(**cfg)
+            else:
+                self.parsedCmd.config.update(key=cfg)
 
         self.parsedCmd.config.validate()
 
@@ -57,6 +51,7 @@ class DetrendTask(BaseTask):
         parser._applyInitialOverrides(self.parsedCmd)
         parser._processDataIds(self.parsedCmd)
 
+        userConfig = self.tasksBox.engine.config['detrend']
         userConfig['isr'].update(windowed=windowed)
         self.mergeConfig(userConfig)
 

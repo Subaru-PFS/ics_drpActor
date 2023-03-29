@@ -30,13 +30,15 @@ def doIPCTask(dataId):
 
 
 class DrpEngine(object):
-    def __init__(self, actor, target, CALIB, rerun, pfsConfigDir, nProcesses):
+    def __init__(self, actor, target, CALIB, rerun, pfsConfigDir, nProcesses, **config):
         self.actor = actor
         self.target = target
         self.CALIB = CALIB
         self.rerun = rerun
         self.pfsConfigDir = pfsConfigDir
         self.nProcesses = nProcesses
+
+        self.config = config
 
         self.fileBuffer = []
         self.dotRoach = None
