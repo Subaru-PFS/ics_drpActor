@@ -5,8 +5,9 @@ import shutil
 from importlib import reload
 from functools import partial
 import drpActor.utils.cmdList as cmdList
+import drpActor.utils.tasks.tasksBox as tasksBox
+import drpActor.utils.tasks.ingest as ingestTask
 import drpActor.utils.dotRoach as dotRoach
-import drpActor.utils.tasks as drpTasks
 import lsst.daf.persistence as dafPersist
 
 reload(cmdList)
@@ -22,7 +23,7 @@ def doIPCTask(dataId):
     defects = drpEngine.getDefects(dataId)
 
     logging.info(f'running doIPCTask for {dataId}')
-    calexp = drpTasks.doIPCTask.run(cds, defects=defects).exposure
+    calexp = drpEngine.tasks.ipcTask.run(cds, defects=defects).exposure
 
     logging.info(f'doIPCTask done, putting output to butler.')
     drpEngine.butler.put(calexp, 'calexp', dataId)
@@ -41,19 +42,20 @@ class DrpEngine(object):
         self.dotRoach = None
         self.defects = dict()
 
-        self.executor = concurrent.futures.ProcessPoolExecutor(nProcesses)
-
         # default settings
         self.doCopyDesignToPfsConfigDir = False
         self.doAutoIngest = True
         self.ingestMode = 'link'
-        self.ingestFlavour = cmdList.Ingest
+        self.ingestFlavour = ingestTask.IngestTask
         self.doAutoDetrend = True
         self.doAutoReduce = False
 
+        self.executor = concurrent.futures.ProcessPoolExecutor(nProcesses)
+        self.tasks = tasksBox.TasksBox(self)
+
         # for hilo base only.
         if self.actor.site == 'H':
-            self.ingestFlavour = cmdList.IngestPgsql
+            self.ingestFlavour = ingestTask.PgsqlIngestTask
             self.ingestMode = 'copy'
             self.doAutoDetrend = False
             self.doAutoReduce = True
@@ -74,7 +76,7 @@ class DrpEngine(object):
         calexp = file.getCalexp(self.butler)
         pfsArm = file.getPfsArm(self.butler)
 
-        logging.info(f'newFile: {str(file.dataId)} state={file.current} calexp={file.calexp} pfsArm={file.pfsArm}')
+        self.actor.logger.info(f'newFile: {str(file.dataId)} state={file.current} calexp={file.calexp} pfsArm={file.pfsArm}')
 
         self.fileBuffer.append(file)
 
@@ -102,7 +104,7 @@ class DrpEngine(object):
         md = self.butler.get('raw_md', **file.dataId)
         return dict(windowed=isWindowed(md))
 
-    def isrRemoval(self, visit):
+    def isrRemoval(self, visit, genKeys=True):
         """Proceed with isr removal for that visit."""
 
         def cacheDefects(ingested):
@@ -119,14 +121,14 @@ class DrpEngine(object):
             toIngest = [file for file in files if file.unknown]
 
             if toIngest:
-                cmd = self.ingestFlavour(self, toIngest)
+                self.tasks.ingest(toIngest)
 
                 # just setting state-machine
                 for file in toIngest:
                     file.ingest()
 
-                status, statusStr, timing = cmd.run()
-                self.actor.bcast.inform(f'ingestStatus={visit},{status},{statusStr},{timing}')
+                if genKeys:
+                    self.actor.bcast.inform(f'ingestStatus={visit},{0},{"OK"},{0}')
 
         def detrendDoneCB(file, *args, **kwargs):
             """CallBack called whenever an H4 image is detrended."""
@@ -169,18 +171,19 @@ class DrpEngine(object):
 
             if ccdFiles:
                 options = self.lookupMetaData(ccdFiles[0])
-                cmd = cmdList.Detrend(self, visit, len(ccdFiles), **options)
 
                 # just setting state-machine
                 for file in ccdFiles:
                     file.reduce()
 
-                status, statusStr, timing = cmd.run()
-                self.actor.bcast.inform(f'detrendStatus={visit},{status},{statusStr},{timing}')
-                # just setting state-machine
+                self.tasks.detrend(visit, len(ccdFiles), **options)
+
+                # cmd = cmdList.Detrend(self, visit, len(ccdFiles), **options)
+                # status, statusStr, timing = cmd.run()
+                # self.actor.bcast.inform(f'detrendStatus={visit},{status},{statusStr},{timing}')
+
                 for file in ccdFiles:
                     self.genDetrendKey(file)
-
 
         #
         # if self.doAutoReduce:
@@ -200,7 +203,7 @@ class DrpEngine(object):
             self.actor.bcast.inform(f"detrend={file.calexp}")
             self.fileBuffer.remove(file)
         else:
-            logging.warning(f'failed to get calexp for {str(file.dataId)}')
+            self.actor.logger.warning(f'failed to get calexp for {str(file.dataId)}')
 
     def newPfsDesign(self, designId):
         """New PfsDesign has been declared, copy it to the repo if new."""
@@ -222,7 +225,7 @@ class DrpEngine(object):
         cameraKey = dataId['spectrograph'], dataId['arm']
 
         if cameraKey not in self.defects:
-            logging.info(f'loading defects for {cameraKey}')
+            self.actor.logger.info(f'loading defects for {cameraKey}')
             defects = self.butler.get("defects", dataId)
 
             self.defects[cameraKey] = defects
