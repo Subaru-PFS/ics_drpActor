@@ -71,10 +71,8 @@ class DrpActor(Actor):
             return
 
         self.logger.info(f'newfilepath: {root}, {night}, {fname} ; threads={threading.active_count()}')
-        self.engine.addFile(CCDFile(root, night, fname))
-
-        if False:
-            reactor.callLater(5, partial(self.callCommand, 'checkLeftOvers'))
+        self.engine.addCcdFile(root, night, fname)
+        #self.engine.addFile(CCDFile(root, night, fname))
 
     def hxFilepath(self, keyvar):
         """ CCD Filepath callback"""
@@ -87,10 +85,10 @@ class DrpActor(Actor):
         root, night = os.path.split(rootNight)
 
         self.logger.info(f'newfilepath: {filepath} ; threads={threading.active_count()}')
-        new = HxFile(root, night, fname)
-
-        self.engine.addFile(new)
-        self.engine.isrRemoval(new.visit, genKeys=False)
+        # new = HxFile(root, night, fname)
+        #
+        # self.engine.addFile(new)
+        # self.engine.isrRemoval(new.visit, genKeys=False)
 
     def spsFileIds(self, keyvar):
         """ spsFileIds callback. """

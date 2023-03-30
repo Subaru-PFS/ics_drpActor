@@ -1,9 +1,11 @@
+import concurrent.futures
+import logging
+from functools import partial
+
 from drpActor.utils.tasks.detrend import DetrendTask
 from drpActor.utils.tasks.ipcTask import IPCTask
-import concurrent.futures
 from twisted.internet import reactor
-from functools import partial
-import logging
+
 
 class TasksBox:
 
@@ -11,16 +13,17 @@ class TasksBox:
         self.engine = engine
 
         self.defects = dict()
-        
+
         self.executor = concurrent.futures.ProcessPoolExecutor(engine.nProcesses)
 
         self.ingestTask = engine.ingestFlavour.bootstrap(self)
         self.detrendTask = DetrendTask.bootstrap(self)
         self.ipcTask = IPCTask.bootstrap()
-        
+
     @property
     def actor(self):
         return self.engine.actor
+
     @property
     def butler(self):
         return self.engine.butler
@@ -37,11 +40,12 @@ class TasksBox:
 
         return self.defects[cameraKey]
 
-    def ingest(self, files):
-        filepath = [file.filepath for file in files]
-        self.ingestTask.runFromActor(filepath)
+    def ingest(self, file):
+        """"""
+        self.ingestTask.runFromActor(file.filepath)
 
     def detrend(self, file, **options):
+        """"""
         self.detrendTask.runFromActor(file, **options)
 
     def detrendDoneCB(self, file, *args, **kwargs):
