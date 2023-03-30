@@ -15,18 +15,6 @@ reload(dotRoach)
 from twisted.internet import reactor
 
 
-def doIPCTask(dataId):
-    """Doing IPC task, note that this is called from multiprocessing, there isn't access to the actual DrpEngine
-    instance."""
-    # raw image is actually :  hdu[-1] - hdu[0], both reference pixel subtracted, reset frame is ignored.
-    cds = drpEngine.butler.get('raw', dataId=dataId)
-    defects = drpEngine.getDefects(dataId)
-
-    logging.info(f'running doIPCTask for {dataId}')
-    calexp = drpEngine.tasks.ipcTask.run(cds, defects=defects).exposure
-
-    logging.info(f'doIPCTask done, putting output to butler.')
-    drpEngine.butler.put(calexp, 'calexp', dataId)
 
 
 class DrpEngine(object):
@@ -109,14 +97,7 @@ class DrpEngine(object):
     def isrRemoval(self, visit, genKeys=True):
         """Proceed with isr removal for that visit."""
 
-        def cacheDefects(ingested):
-            """Load NIR arm defect."""
-            nirFiles = [file for file in ingested if file.arm == 'n']
 
-            for file in nirFiles:
-                self.getDefects(file.dataId)
-
-            drpEngine.defects = self.defects
 
         def doIngest(files):
             """"""
@@ -165,20 +146,14 @@ class DrpEngine(object):
 
             if nirFiles:
                 for file in nirFiles:
-                    # just setting state-machine
-                    file.reduce()
-                    # calling multiprocessing to do IPCTask.
-                    future = self.executor.submit(doIPCTask, file.dataId)
-                    future.add_done_callback(partial(detrendDoneCB, file))
+
 
             if ccdFiles:
-                options = self.lookupMetaData(ccdFiles[0])
-
-                # just setting state-machine
                 for file in ccdFiles:
+                    # just setting state-machine
                     file.reduce()
-
-                self.tasks.detrend(visit, len(ccdFiles), **options)
+                    options = self.lookupMetaData(file)
+                    self.tasks.detrend(file, **options)
 
                 # cmd = cmdList.Detrend(self, visit, len(ccdFiles), **options)
                 # status, statusStr, timing = cmd.run()
@@ -222,17 +197,7 @@ class DrpEngine(object):
             except Exception as e:
                 self.actor.logger.warning(f'failed to copy from {designPath} to {self.pfsConfigDir} with {e}')
 
-    def getDefects(self, dataId):
-        """getting defects from butler or memory."""
-        cameraKey = dataId['spectrograph'], dataId['arm']
 
-        if cameraKey not in self.defects:
-            self.actor.logger.info(f'loading defects for {cameraKey}')
-            defects = self.butler.get("defects", dataId)
-
-            self.defects[cameraKey] = defects
-
-        return self.defects[cameraKey]
 
     def startDotRoach(self, dataRoot, maskFile, keepMoving=False):
         """ Starting dotRoach loop, deactivating autodetrend. """

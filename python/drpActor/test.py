@@ -1,45 +1,58 @@
-from lsst.obs.pfs.detrendTask import DetrendTask
+#!/usr/bin/env python
+
+import sys
+
+import lsst.log
+import lsst.utils.introspection
+import lsst.utils.logging
+from lsst.obs.pfs.detrendTask import DetrendTask as BaseTask
+from lsst.pipe.base.struct import Struct
 
 
-def detrend(visit, target, rerun='ginga', site=None, cam=None, cmdlineArgs=None):
-    """example code from Craig"""
-    arm = cam[0]
-    spec = int(cam[1])
+class DetrendTask(BaseTask):
 
-    args = [target]
-    args.extend(('--calib', '%s/CALIB' % target))
-    args.extend(('--rerun', '%s/detrend' % rerun))
-    args.extend(('--id', 'visit=%d' % visit))
-    # args.append('--doraise')
-    args.append('--clobber-versions')
+    @classmethod
+    def parseAndRun(cls, args=None, config=None, log=None, doReturnResults=False):
+        """"""
+        if args is None:
+            commandAsStr = " ".join(sys.argv)
+            args = sys.argv[1:]
+            print(args)
+        else:
+            commandAsStr = "{}{}".format(lsst.utils.introspection.get_caller_name(stacklevel=1), tuple(args))
 
-    if cmdlineArgs is not None:
-        if isinstance(cmdlineArgs, str):
-            import shlex
-            cmdlineArgs = shlex.split(cmdlineArgs)
-        args.extend(cmdlineArgs)
+        argumentParser = cls._makeArgumentParser()
+        if config is None:
+            config = cls.ConfigClass()
+        parsedCmd = argumentParser.parse_args(config=config, args=args, log=log, override=cls.applyOverrides)
+        # print this message after parsing the command so the log is fully
+        # configured
+        parsedCmd.log.info("Running: %s", commandAsStr)
 
-    config = DetrendTask.ConfigClass()
-    config.isr.doBias = True
-    config.isr.doDark = False
-    config.isr.doFlat = False
+        taskRunner = cls.RunnerClass(TaskClass=cls, parsedCmd=parsedCmd, doReturnResults=doReturnResults)
+        resultList = taskRunner.run(parsedCmd)
 
-    # things we probably want to turn on
+        try:
+            nFailed = sum(((res.exitStatus != 0) for res in resultList))
+        except (TypeError, AttributeError) as e:
+            # NOTE: TypeError if resultList is None, AttributeError if it
+            # doesn't have exitStatus.
+            parsedCmd.log.warning("Unable to retrieve exit status (%s); assuming success", e)
+            nFailed = 0
 
-    # config.isr.doLinearize = False
-    # config.isr.doFringe = False
-    #
-    # config.isr.doSaturationInterpolation = False
-    # config.repair.doInterpolate = False
-    config.repair.cosmicray.keepCRs = True
-    config.repair.cosmicray.nCrPixelMax = 250000
+        if nFailed > 0:
+            if parsedCmd.noExit:
+                parsedCmd.log.error("%d dataRefs failed; not exiting as --noExit was set", nFailed)
+            else:
+                sys.exit(nFailed)
 
-    detrendTask = DetrendTask()
-    cooked = detrendTask.parseAndRun(config=config, args=args)
+        return Struct(
+            argumentParser=argumentParser,
+            parsedCmd=parsedCmd,
+            taskRunner=taskRunner,
+            resultList=resultList,
+        )
 
-    return cooked
 
-# python -c "
-# from lsst.daf.persistence import Butler
-# butler = Butler("/drp/lam/rerun/pfs/detrend")
-# arc = butler.get(\"pfsArm\", visit=5825, arm=\"r\", spectrograph=1)
+task = DetrendTask()
+task.parseAndRun()
