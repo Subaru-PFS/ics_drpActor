@@ -94,5 +94,6 @@ class TasksExec:
                 time.sleep(sleepTime)
 
             file.state = 'idle'
+            self.engine.logger.info(f'pfsArm successfully generated for {str(file.dataId)} !')
 
         reactor.callLater(0.1, fromThisThread)
