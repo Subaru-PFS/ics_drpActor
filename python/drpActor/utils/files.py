@@ -1,21 +1,14 @@
 import os
 
-import fysom
 from ics.utils.sps.spectroIds import SpectroIds
 
 
-class PfsFile(fysom.Fysom):
+class PfsFile(object):
     """ just a place holder for ccd file"""
     fromArmNum = dict([(v, k) for k, v in SpectroIds.validArms.items()])
 
     def __init__(self, root, night, filename):
-        fysom.Fysom.__init__(self, {'initial': 'none',
-                                    'events': [{'name': 'ingest', 'src': 'none', 'dst': 'ingesting'},
-                                               {'name': 'accept', 'src': ['none', 'ingesting'], 'dst': 'ingested'},
-                                               {'name': 'reject', 'src': ['none', 'ingesting'], 'dst': 'none'},
-                                               {'name': 'reduce', 'src': ['ingested'], 'dst': 'reducing'},
-                                               {'name': 'idle', 'src': ['ingested', 'reducing'], 'dst': 'ingested'},
-                                               ]})
+
         self.root = root
         self.night = night
         self.filename = filename
@@ -24,20 +17,15 @@ class PfsFile(fysom.Fysom):
         self.armNum = int(filename[11])
         self.arm = PfsFile.fromArmNum[self.armNum]
 
-        self.calexp = ''
-        self.pfsArm = False
+        self.raw_md = None
+        self.calexp = None
+        self.pfsArm = None
 
-    @property
-    def unknown(self):
-        return self.current == 'none'
+        self.state = 'idle'
 
     @property
     def ingested(self):
-        return self.current in ['ingested', 'reducing']
-
-    @property
-    def reducible(self):
-        return self.current == 'ingested'
+        return self.raw_md is not None
 
     @property
     def filepath(self):
@@ -47,30 +35,35 @@ class PfsFile(fysom.Fysom):
     def dataId(self):
         return dict(visit=self.visit, arm=self.arm, spectrograph=self.specNum)
 
-    def isIngested(self, butler):
-        """Check is file has been ingested, setting state machine."""
-        if not self.ingested:
-            try:
-                butler.get('raw_md', **self.dataId)
-                self.accept()
-            except:
-                self.reject()
+    def initialize(self, butler):
+        """Set file to correct state."""
+        self.getRawMd(butler)
+        self.getCalexp(butler)
+        self.getPfsArm(butler)
 
-        return self.ingested
+    def getRawMd(self, butler):
+        """Check is file has been ingested, setting state machine."""
+        if not self.raw_md:
+            try:
+                self.raw_md = butler.get('raw_md', **self.dataId)
+            except:
+                pass
+
+        return self.raw_md
 
     def getCalexp(self, butler):
         """Check is calexp has been produced."""
-        if not self.calexp and self.isIngested(butler):
+        if self.ingested and not self.calexp:
             try:
                 self.calexp = butler.getUri('calexp', **self.dataId)
-            except:
-                pass
+            except Exception as e:
+                print(e)
 
         return self.calexp
 
     def getPfsArm(self, butler):
         """Check if armFile has been produced."""
-        if not self.pfsArm and self.isIngested(butler):
+        if self.ingested and not self.pfsArm:
             try:
                 self.pfsArm = butler.get('pfsArm', **self.dataId)
             except:
@@ -85,6 +78,16 @@ class CCDFile(PfsFile):
     def filepath(self):
         return os.path.join(self.root, self.night, 'sps', self.filename)
 
+    @property
+    def windowed(self):
+        try:
+            nRows = self.raw_md['W_CDROWN'] + 1 - self.raw_md['W_CDROW0']
+            return nRows != 4300
+        except KeyError:
+            return False
+
 
 class HxFile(PfsFile):
-    pass
+    @property
+    def windowed(self):
+        return False
