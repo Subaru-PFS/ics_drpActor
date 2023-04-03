@@ -34,10 +34,9 @@ class DrpCmd(object):
             ('dotRoach', '@phase2', self.dotRoachPhase2),
             ('dotRoach', '@phase3', self.dotRoachPhase3),
 
-            ('doReduce', '[@off]', self.doReduce),
-            ('doDetrend', '[@off]', self.doDetrend),
+            ('doReduce', '[@(off|on)]', self.doReduce),
+            ('doDetrend', '[@(off|on)]', self.doDetrend),
 
-            ('checkLeftOvers', '', self.checkLeftOvers)
         ]
 
         # Define typed command arguments for the above commands.
@@ -138,14 +137,6 @@ class DrpCmd(object):
         self.engine.stopDotRoach(cmd)
         cmd.finish()
 
-    def doReduce(self, cmd):
-        """activating/deactivating auto reduction."""
-        cmdKeys = cmd.cmd.keywords
-
-        doReduce = 'off' not in cmdKeys
-        self.engine.doAutoReduce = doReduce
-        cmd.finish(f'text="do drp.autoReduce {doReduce}"')
-
     def doDetrend(self, cmd):
         """activating/deactivating auto reduction."""
         cmdKeys = cmd.cmd.keywords
@@ -154,7 +145,10 @@ class DrpCmd(object):
         self.engine.doAutoDetrend = doDetrend
         cmd.finish(f'text="do drp.doAutoDetrend {doDetrend}"')
 
-    def checkLeftOvers(self, cmd):
-        """ Check for non-reduced files."""
-        self.engine.checkLeftOvers(cmd)
-        cmd.finish(f'text="len(fileBuffer)={len(self.engine.fileBuffer)}"')
+    def doReduce(self, cmd):
+        """activating/deactivating auto reduction."""
+        cmdKeys = cmd.cmd.keywords
+
+        doReduce = 'off' not in cmdKeys
+        self.engine.doAutoReduce = doReduce
+        cmd.finish(f'text="do drp.autoReduce {doReduce}"')
