@@ -2,15 +2,15 @@
 import os
 from functools import partial
 
-from lsst.obs.pfs.detrendTask import DetrendTask as BaseTask
+from pfs.drp.stella.reduceExposure import ReduceExposureTask as BaseTask
 
 
 def runOutsideClass(parsedCmd):
-    taskRunner = DetrendTask.RunnerClass(TaskClass=BaseTask, parsedCmd=parsedCmd, doReturnResults=False)
+    taskRunner = ReduceExposureTask.RunnerClass(TaskClass=BaseTask, parsedCmd=parsedCmd, doReturnResults=False)
     return taskRunner.run(parsedCmd)
 
 
-class DetrendTask(BaseTask):
+class ReduceExposureTask(BaseTask):
     def __init__(self, tasksExec, parsedCmd):
         self.tasksExec = tasksExec
         self.parsedCmd = parsedCmd
@@ -47,7 +47,7 @@ class DetrendTask(BaseTask):
     def runFromActor(self, file):
         """"""
         # resetting the frozen config file.
-        self.parsedCmd.config = DetrendTask.ConfigClass()
+        self.parsedCmd.config = ReduceExposureTask.ConfigClass()
         parser = self._makeArgumentParser()
         parser._applyInitialOverrides(self.parsedCmd)
 
@@ -60,11 +60,11 @@ class DetrendTask(BaseTask):
         self.parsedCmd.id.makeDataRefList(self.parsedCmd)
 
         # merging with user config.
-        userConfig = self.tasksExec.engine.config['detrend']
+        userConfig = self.tasksExec.engine.config['reduceExposure']
         doDefect = file.arm == 'n'
         userConfig['isr'].update(windowed=file.windowed, doDefect=doDefect)
         self.mergeConfig(userConfig)
 
         # send task to the ProcessPoolExecutor.
         future = self.tasksExec.executor.submit(runOutsideClass, self.parsedCmd)
-        future.add_done_callback(partial(self.tasksExec.waitForCalexp, file))
+        future.add_done_callback(partial(self.tasksExec.waitForPfsArm, file))

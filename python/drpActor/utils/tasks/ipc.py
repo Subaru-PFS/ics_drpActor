@@ -49,4 +49,4 @@ class IPCTask(IsrTask):
         tasksExec = self.tasksExec
         # calling multiprocessing to do IPCTask.
         future = self.tasksExec.executor.submit(runOutsideClass, file.dataId)
-        future.add_done_callback(partial(self.tasksExec.detrendDoneCB, file))
+        future.add_done_callback(partial(self.tasksExec.waitForCalexp, file))

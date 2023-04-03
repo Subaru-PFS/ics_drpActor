@@ -79,6 +79,9 @@ class DrpEngine(object):
             else:
                 self.tasks.detrend(file)
 
+        if self.doAutoReduce and file.ingested:
+            self.tasks.reduceExposure(file)
+
     def genDetrendKey(self, file, cmd=None):
         """Generate detrend key to display image with gingaActor."""
         cmd = self.actor.bcast if cmd is None else cmd
