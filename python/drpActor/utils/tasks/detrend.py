@@ -60,10 +60,14 @@ class DetrendTask(BaseTask):
         self.parsedCmd.id.makeDataRefList(self.parsedCmd)
 
         # merging with user config.
-        userConfig = self.tasksExec.engine.config['detrend']
-        doDefect = file.arm == 'n'
-        userConfig['isr'].update(windowed=file.windowed, doDefect=doDefect)
-        self.mergeConfig(userConfig)
+        try:
+            userConfig = self.tasksExec.engine.config['detrend']
+            doDefect = file.arm == 'n'
+            userConfig['isr'].update(windowed=file.windowed, doDefect=doDefect)
+            self.mergeConfig(userConfig)
+
+        except Exception as e:
+            self.tasksExec.engine.logger.warning(f'failed to load user config for detrend.py with : {str(e)}')
 
         # send task to the ProcessPoolExecutor.
         future = self.tasksExec.executor.submit(runOutsideClass, self.parsedCmd)
