@@ -33,8 +33,6 @@ class DrpEngine(object):
         self.doAutoDetrend = True
         self.doAutoReduce = False
 
-        self.tasks = tasksExec.TasksExec(self)
-
         # for hilo base only.
         if self.actor.site == 'H':
             self.ingestFlavour = ingestTask.PgsqlIngestTask
@@ -42,6 +40,7 @@ class DrpEngine(object):
             self.doAutoDetrend = False
             self.doAutoReduce = True
 
+        self.tasks = tasksExec.TasksExec(self)
         self.butler = self.loadButler()
 
     @property
