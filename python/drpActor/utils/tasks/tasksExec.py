@@ -88,7 +88,7 @@ class TasksExec:
             while not file.getPfsArm(self.butler):
                 if (time.time() - start) > timeout:
                     file.state = 'idle'
-                    self.engine.logger.warning(f'failed to get calexp for {str(file.dataId)}')
+                    self.engine.logger.warning(f'failed to get pfsArm for {str(file.dataId)}')
                     return
 
                 time.sleep(sleepTime)

@@ -40,7 +40,7 @@ class ReduceExposureTask(BaseTask):
             if isinstance(cfg, dict):
                 getattr(self.parsedCmd.config, key).update(**cfg)
             else:
-                self.parsedCmd.config.update(key=cfg)
+                self.parsedCmd.config.update(**{key: cfg})
 
         self.parsedCmd.config.validate()
 
