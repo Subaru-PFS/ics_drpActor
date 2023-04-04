@@ -71,7 +71,7 @@ class DotRoach(object):
 
         def parallelize(butler, dataId, fiberTrace, detectorMap, fluxPerFiber):
             flux = extractFlux.getWindowedFluxes(butler, dataId,
-                                                 fiberTrace=fiberTrace, detectorMap=detectorMap, useButler=False)
+                                                 fiberTrace=fiberTrace, detectorMap=detectorMap, useButler=True)
             fluxPerFiber.append(flux)
 
         # load fiberTraces on first iteration presumably.
