@@ -1,34 +1,18 @@
-import concurrent.futures
-import logging
 import os
-import shutil
 from importlib import reload
 
 import drpActor.utils.cmdList as cmdList
 import drpActor.utils.dotRoach as dotRoach
-import drpActor.utils.tasks as drpTasks
+import drpActor.utils.tasks.ingest as ingestTask
+import drpActor.utils.tasks.tasksExec as tasksExec
 import lsst.daf.persistence as dafPersist
 
 reload(cmdList)
 reload(dotRoach)
-from twisted.internet import reactor
-
-
-def doIPCTask(dataId):
-    """Doing IPC task, note that this is called from multiprocessing, there isn't access to the actual DrpEngine
-    instance."""
-    raw = drpEngine.butler.get('raw', dataId=dataId)
-    defects = drpEngine.getDefects(dataId)
-
-    logging.info(f'running doIPCTask for {dataId}')
-    calexp = drpTasks.doIPCTask.run(raw, defects=defects).exposure
-
-    logging.info(f'doIPCTask done, putting output to butler.')
-    drpEngine.butler.put(calexp, 'calexp', dataId)
 
 
 class DrpEngine(object):
-    def __init__(self, actor, target, CALIB, rerun, pfsConfigDir, nProcesses):
+    def __init__(self, actor, target, CALIB, rerun, pfsConfigDir, nProcesses, **config):
         self.actor = actor
         self.target = target
         self.CALIB = CALIB
@@ -36,170 +20,99 @@ class DrpEngine(object):
         self.pfsConfigDir = pfsConfigDir
         self.nProcesses = nProcesses
 
+        self.config = config
+
         self.fileBuffer = []
         self.dotRoach = None
-        self.defects = dict()
-
-        self.executor = concurrent.futures.ProcessPoolExecutor(nProcesses)
 
         # default settings
         self.doCopyDesignToPfsConfigDir = False
         self.doAutoIngest = True
-        self.ingestMode = 'copy'
-        self.ingestFlavour = cmdList.Ingest
+        self.ingestMode = 'link'
+        self.ingestFlavour = ingestTask.IngestTask
         self.doAutoDetrend = True
         self.doAutoReduce = False
 
         # for hilo base only.
         if self.actor.site == 'H':
-            self.ingestFlavour = cmdList.IngestPgsql
+            self.ingestFlavour = ingestTask.PgsqlIngestTask
+            self.ingestMode = 'copy'
             self.doAutoDetrend = False
             self.doAutoReduce = True
 
+        self.tasks = tasksExec.TasksExec(self)
         self.butler = self.loadButler()
 
-        # declaring global drpEngine for multiprocessing.
-        global drpEngine
-        drpEngine = self
+    @property
+    def logger(self):
+        return self.actor.logger
 
     @classmethod
     def fromConfigFile(cls, actor):
         return cls(actor, **actor.actorConfig[actor.site])
-
-    def addFile(self, file):
-        """ Add new file into the buffer. """
-        self.fileBuffer.append(file)
 
     def loadButler(self):
         """load butler. """
         try:
             butler = dafPersist.Butler(os.path.join(self.target, 'rerun', self.rerun))
         except Exception as e:
-            self.actor.logger.warning('text=%s' % self.actor.strTraceback(e))
-            self.actor.logger.warning('butler could not be instantiated, might be a fresh one')
+            self.logger.warning('text=%s' % self.actor.strTraceback(e))
+            self.logger.warning('butler could not be instantiated, might be a fresh one')
             butler = None
 
         return butler
 
-    def lookupMetaData(self, file):
-        """ lookup into metadata, search here if exposure is windowed."""
+    def newExposure(self, file):
+        """ Add new file into the buffer. """
+        # Assessing what has been done on this file/dataId .
+        file.initialize(self.butler)
+        self.logger.info(f'id : {str(file.dataId)} ingested={file.ingested} calexp={file.calexp} pfsArm={file.pfsArm}')
+        self.fileBuffer.append(file)
 
-        def isWindowed(md):
-            try:
-                nRows = md['W_CDROWN'] + 1 - md['W_CDROW0']
-                return nRows != 4300
-            except:
-                return False
+        if self.doAutoIngest and not file.ingested:
+            self.tasks.ingest(file)
 
-        md = self.butler.get('raw_md', **file.dataId)
-        return dict(windowed=isWindowed(md))
+        if self.doAutoDetrend and file.ingested:
+            if file.calexp:
+                self.genDetrendKey(file)
+            else:
+                self.tasks.detrend(file)
 
-    def ingestPerNight(self, filesPerNight):
-        """Ingest multiple files at the same time."""
-        if all([file.ingested for file in filesPerNight]):
-            return
+        if self.doAutoReduce and file.ingested:
+            self.tasks.reduceExposure(file)
 
-        for file in filesPerNight:
-            file.ingested = True
+    def genDetrendKey(self, file, cmd=None):
+        """Generate detrend key to display image with gingaActor."""
+        cmd = self.actor.bcast if cmd is None else cmd
 
-        return self.ingestFlavour(self, filesPerNight[0].starPath)
+        if file.calexp:
+            cmd.inform(f"detrend={file.calexp}")
 
-    def isrRemoval(self, visit):
-        """Proceed with isr removal for that visit."""
+        self.genDetrendStatus(file.visit, cmd=cmd)
 
-        def genCommandStatus(cmd, status, statusStr, timing):
-            """Just generate simple status keyword for each visit."""
-            self.actor.bcast.inform(f'{cmd}Status={visit},{status},{statusStr},{timing}')
+    def genIngestStatus(self, visit, cmd=None):
+        """Generate ingestStatus key."""
+        cmd = self.actor.bcast if cmd is None else cmd
 
-        def nirDetrendDoneCB(*args, **kwargs):
-            """CallBack called whenever an H4 image is detrended."""
-            reactor.callLater(2, self.genFilesKeywordForDisplay)
+        ingested = [file.ingested for file in self.fileBuffer if file.visit == visit]
+        statusStr = 'OK' if all(ingested) else 'FAILED'
+        retCode = 0 if all(ingested) else -1
 
-        # get exposure with same visit
-        files = [file for file in self.fileBuffer if file.visit == visit]
-        if not files:
-            return
+        cmd.inform(f'ingestStatus={visit},{retCode},{statusStr},{0}')
 
-        nights = list(set([file.night for file in files]))
-        [visit] = list(set([file.visit for file in files]))
+    def genDetrendStatus(self, visit, cmd=None):
+        """Generate detrendStatus key."""
+        cmd = self.actor.bcast if cmd is None else cmd
 
-        if self.doAutoIngest:
-            # seems unlikely to have separate night for one visit for still possible.
-            for night in nights:
-                filesPerNight = [file for file in files if file.night == night]
-                cmd = self.ingestPerNight(filesPerNight)
-                genCommandStatus('ingest', *cmd.run())
+        sameVisit = [file for file in self.fileBuffer if file.visit == visit]
+        idle = [file.state == 'idle' for file in sameVisit]
 
-        nirFiles = [file for file in files if file.arm == 'n']
-        ccdFiles = list(set(files) - set(nirFiles))
+        if all(idle):
+            calexp = [file.calexp for file in sameVisit]
+            statusStr = 'OK' if all(calexp) else 'FAILED'
+            retCode = 0 if all(calexp) else -1
 
-        if self.doAutoDetrend:
-            if ccdFiles:
-                options = self.lookupMetaData(files[0])
-                cmd = cmdList.Detrend(self, visit, **options)
-                genCommandStatus('detrend', *cmd.run())
-                self.genFilesKeywordForDisplay()
-
-            if nirFiles:
-                # loading defects first, should be done only once.
-                self.getDefects(nirFiles[0].dataId)
-                # calling multiprocessing to do IPCTask.
-                for file in nirFiles:
-                    future = self.executor.submit(doIPCTask, file.dataId)
-                    future.add_done_callback(nirDetrendDoneCB)
-
-        if self.doAutoReduce:
-            if ccdFiles:
-                options = self.lookupMetaData(files[0])
-                cmd = cmdList.ReduceExposure(self.target, self.CALIB, self.rerun, visit, **options)
-                genCommandStatus('reduceExposure', *cmd.run())
-
-        if self.dotRoach is not None:
-            self.dotRoach.runAway(files)
-            self.dotRoach.status(cmd=self.actor.bcast)
-
-    def genFilesKeywordForDisplay(self):
-        """ Generate detrend keyword for isr"""
-        toRemove = []
-        for file in self.fileBuffer:
-
-            try:
-                isrPath = self.butler.getUri('calexp', **file.dataId)
-                toRemove.append(file)
-            except:
-                isrPath = False
-
-            self.actor.bcast.inform(f'detrend={isrPath}')
-
-        for file in toRemove:
-            self.fileBuffer.remove(file)
-
-    def newPfsDesign(self, designId):
-        """New PfsDesign has been declared, copy it to the repo if new."""
-        if not self.doCopyDesignToPfsConfigDir:
-            return
-
-        fileName = f'pfsDesign-0x{designId:016x}.fits'
-
-        if not os.path.isfile(os.path.join(self.pfsConfigDir, fileName)):
-            designPath = os.path.join('/data/pfsDesign', fileName)
-            try:
-                shutil.copy(designPath, self.pfsConfigDir)
-                self.actor.logger.info(f'{fileName} copied {self.pfsConfigDir} successfully !')
-            except Exception as e:
-                self.actor.logger.warning(f'failed to copy from {designPath} to {self.pfsConfigDir} with {e}')
-
-    def getDefects(self, dataId):
-        """getting defects from butler or memory."""
-        cameraKey = dataId['spectrograph'], dataId['arm']
-
-        if cameraKey not in self.defects:
-            logging.info(f'loading defects for {cameraKey}')
-            defects = self.butler.get("defects", dataId)
-
-            self.defects[cameraKey] = defects
-
-        return self.defects[cameraKey]
+            cmd.inform(f'detrendStatus={visit},{retCode},{statusStr},{0}')
 
     def startDotRoach(self, dataRoot, maskFile, keepMoving=False):
         """ Starting dotRoach loop, deactivating autodetrend. """
@@ -223,8 +136,17 @@ class DrpEngine(object):
 
         self.actor.callCommand('checkLeftOvers')
 
-    def checkLeftOvers(self, cmd):
-        """ """
-        for visit in list(set([file.visit for file in self.fileBuffer])):
-            cmd.inform(f'text="found visit:{visit} in leftovers"')
-            # self.isrRemoval(visit)
+    def newPfsDesign(self, designId):
+        """New PfsDesign has been declared, copy it to the repo if new."""
+        if not self.doCopyDesignToPfsConfigDir:
+            return
+    #
+    #     fileName = f'pfsDesign-0x{designId:016x}.fits'
+    #
+    #     if not os.path.isfile(os.path.join(self.pfsConfigDir, fileName)):
+    #         designPath = os.path.join('/data/pfsDesign', fileName)
+    #         try:
+    #             shutil.copy(designPath, self.pfsConfigDir)
+    #             self.logger.info(f'{fileName} copied {self.pfsConfigDir} successfully !')
+    #         except Exception as e:
+    #             self.logger.warning(f'failed to copy from {designPath} to {self.pfsConfigDir} with {e}')

@@ -1,3 +1,5 @@
+import os.path
+
 import drpActor.utils.cmd as drpCmd
 
 
@@ -5,22 +7,22 @@ class Ingest(drpCmd.DrpCommand):
     """ Placeholder for ingest command. """
     cmdHead = 'ingestPfsImages'
 
-    def __init__(self, engine, filepath):
+    def __init__(self, engine, files):
         """Enable string interpolation for config file
 
         Parameters
         ----------
         target : `str`
            Path to data repository.
-        filepath : `str`
+        files : list of `PfsFile`
            Exposure file path.
         pfsConfigDir : `str`
            Directory with pfsConfig/pfsDesign files.
         mode : `str`
            Mode of delivering the files to their destination.
         """
-
-        cmdArgs = f"{filepath} --processes {engine.nProcesses} --pfsConfigDir {engine.pfsConfigDir} --mode={engine.ingestMode}"
+        filepath = [file.filepath for file in files]
+        cmdArgs = f"{' '.join(filepath)} --processes {len(files)} --pfsConfigDir {engine.pfsConfigDir} --mode={engine.ingestMode}"
         # config = dict(clobber=True, register=dict(ignore=True))
         config = dict()
         drpCmd.DrpCommand.__init__(self, engine.target, cmdArgs, config=config)
@@ -35,7 +37,7 @@ class Detrend(drpCmd.DrpCommand):
     """ Placeholder for Detrend command. """
     cmdHead = 'detrend'
 
-    def __init__(self, engine, visit, windowed=False):
+    def __init__(self, engine, visit, nProcesses, windowed=False):
         """Perform ISR on given exposure.
 
         Parameters
@@ -49,12 +51,13 @@ class Detrend(drpCmd.DrpCommand):
         visit : `int`
            PFS visit.
         """
-        cmdArgs = f"--processes {engine.nProcesses} --calib  {engine.target}/{engine.CALIB} --rerun {engine.rerun} " \
-                  f"--id visit={visit} --clobber-config --no-versions"
+        CALIB = os.path.join(engine.target, engine.CALIB)
+        cmdArgs = f"--processes {nProcesses} --calib {CALIB} --rerun {engine.rerun} --id visit={visit} arm=b^r " \
+                  f"--clobber-config --no-versions"
 
         # we want probably to this from yaml/pfs_instdata but has not been merged yet
-        isr = dict(doBias=True,
-                   doDark=True,
+        isr = dict(doBias=False,
+                   doDark=False,
                    doFlat=False,
                    doDefect=False,
                    windowed=windowed)

@@ -5,7 +5,6 @@ import argparse
 import logging
 import os
 import threading
-from functools import partial
 from importlib import reload
 
 import drpActor.utils.engine as drpEngine
@@ -71,10 +70,7 @@ class DrpActor(Actor):
             return
 
         self.logger.info(f'newfilepath: {root}, {night}, {fname} ; threads={threading.active_count()}')
-        self.engine.addFile(CCDFile(root, night, fname))
-
-        if False:
-            reactor.callLater(5, partial(self.callCommand, 'checkLeftOvers'))
+        self.engine.newExposure(CCDFile(root, night, fname))
 
     def hxFilepath(self, keyvar):
         """ CCD Filepath callback"""
@@ -87,7 +83,7 @@ class DrpActor(Actor):
         root, night = os.path.split(rootNight)
 
         self.logger.info(f'newfilepath: {filepath} ; threads={threading.active_count()}')
-        self.engine.addFile(HxFile(root, night, fname))
+        self.engine.newExposure(HxFile(root, night, fname))
 
     def spsFileIds(self, keyvar):
         """ spsFileIds callback. """
@@ -96,7 +92,7 @@ class DrpActor(Actor):
         except ValueError:
             return
 
-        self.engine.isrRemoval(visit)
+        reactor.callLater(1, self.engine.genIngestStatus, visit)
 
     def newPfsDesign(self, keyvar):
         try:
