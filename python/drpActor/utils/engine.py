@@ -2,7 +2,6 @@ import os
 from importlib import reload
 
 import drpActor.utils.dotRoach as dotRoach
-import drpActor.utils.tasks.ingest as ingestTask
 import drpActor.utils.tasks.tasksExec as tasksExec
 import lsst.daf.persistence as dafPersist
 
@@ -23,34 +22,29 @@ class DrpEngine(object):
         self.fileBuffer = []
         self.dotRoach = None
 
-        # default settings
-        self.doCopyDesignToPfsConfigDir = False
-        self.doAutoIngest = True
-        self.ingestMode = 'link'
-        self.ingestFlavour = ingestTask.IngestTask
-        self.doAutoDetrend = True
+        self.doAutoIngest = False
+        self.doAutoDetrend = False
         self.doAutoReduce = False
 
-        # for hilo base only.
-        if self.actor.site == 'H':
-            self.ingestFlavour = ingestTask.PgsqlIngestTask
-            self.ingestMode = 'copy'
-            self.doAutoDetrend = False
-            self.doAutoReduce = True
-
-        self.tasks = tasksExec.TasksExec(self)
+        # default setting from config file.
+        self.setSettings()
         self.butler = self.loadButler()
+        self.tasks = tasksExec.TasksExec(self)
 
     @property
     def logger(self):
         return self.actor.logger
+
+    @property
+    def settings(self):
+        return self.config['settings']
 
     @classmethod
     def fromConfigFile(cls, actor):
         return cls(actor, **actor.actorConfig[actor.site])
 
     def loadButler(self):
-        """load butler. """
+        """Load butler."""
         try:
             butler = dafPersist.Butler(os.path.join(self.target, 'rerun', self.rerun))
         except Exception as e:
@@ -67,7 +61,7 @@ class DrpEngine(object):
         self.fileBuffer.append(file)
 
     def newExposure(self, file):
-        """ Add new file into the buffer. """
+        """Add new file into the buffer."""
         self.inspect(file)
 
         if self.doAutoIngest and not file.ingested:
@@ -81,6 +75,20 @@ class DrpEngine(object):
 
         if self.doAutoReduce and file.ingested:
             self.tasks.reduceExposure(file)
+
+    def newVisit(self, visit):
+        """New sps visit callback."""
+        # generate ingest status first
+        self.genIngestStatus(visit)
+
+        # get exposure with same visit
+        files = [file for file in self.fileBuffer if file.visit == visit]
+        if not files:
+            return
+
+        if self.dotRoach is not None:
+            self.dotRoach.runAway(files)
+            self.dotRoach.status(cmd=self.actor.bcast)
 
     def genDetrendKey(self, file, cmd=None):
         """Generate detrend key to display image with gingaActor."""
@@ -116,16 +124,16 @@ class DrpEngine(object):
             cmd.inform(f'detrendStatus={visit},{retCode},{statusStr},{0}')
 
     def startDotRoach(self, dataRoot, maskFile, keepMoving=False):
-        """ Starting dotRoach loop, deactivating autodetrend. """
-        self.doAutoDetrend = False
-        self.doAutoReduce = False
+        """Starting dotRoach loop."""
+        # Deactivating auto-detrend.
+        self.setSettings(doAutoDetrend=False, doAutoReduce=False)
+        # instantiating DotRoach object.
         self.dotRoach = dotRoach.DotRoach(self, dataRoot, maskFile, keepMoving=keepMoving)
 
     def stopDotRoach(self, cmd):
-        """ stopping dotRoach loop, reactivating autodetrend. """
-        self.doAutoIngest = True
-        self.doAutoDetrend = True
-        self.doAutoReduce = False
+        """Stopping dotRoach loop"""
+        # setting by default.
+        self.setSettings()
 
         if not self.dotRoach:
             cmd.warn('text="no dotRoach loop on-going."')
@@ -135,11 +143,19 @@ class DrpEngine(object):
         self.dotRoach.finish()
         self.dotRoach = None
 
-        self.actor.callCommand('checkLeftOvers')
+    def setSettings(self, doAutoIngest=None, doAutoDetrend=None, doAutoReduce=None):
+        """Setting engine parameters."""
+        doAutoIngest = self.settings['doAutoIngest'] if doAutoIngest is None else doAutoIngest
+        doAutoDetrend = self.settings['doAutoDetrend'] if doAutoDetrend is None else doAutoDetrend
+        doAutoReduce = self.settings['doAutoReduce'] if doAutoReduce is None else doAutoReduce
+
+        self.doAutoIngest = doAutoIngest
+        self.doAutoDetrend = doAutoDetrend
+        self.doAutoReduce = doAutoReduce
 
     def newPfsDesign(self, designId):
         """New PfsDesign has been declared, copy it to the repo if new."""
-        if not self.doCopyDesignToPfsConfigDir:
+        if not self.settings['doCopyDesignToPfsConfigDir']:
             return
     #
     #     fileName = f'pfsDesign-0x{designId:016x}.fits'

@@ -3,6 +3,11 @@
 from lsst.obs.pfs.ingest import PfsIngestTask, PfsPgsqlIngestTask
 
 
+def factory(ingestPgsql=False):
+    """Return correct class"""
+    return PgsqlIngestTask if ingestPgsql else IngestTask
+
+
 class IngestTask(PfsIngestTask):
     def __init__(self, tasksExec, parsedCmd):
         self.tasksExec = tasksExec
@@ -28,7 +33,7 @@ class IngestTask(PfsIngestTask):
         self.parsedCmd.files = [file.filepath]
         self.parsedCmd.input = self.engine.target
         self.parsedCmd.pfsConfigDir = self.engine.pfsConfigDir
-        self.parsedCmd.mode = self.engine.ingestMode
+        self.parsedCmd.mode = self.engine.settings['ingestMode']
 
         return self.run(self.parsedCmd)
 

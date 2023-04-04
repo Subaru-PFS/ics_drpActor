@@ -1,9 +1,10 @@
 import concurrent.futures
 import time
 
+import drpActor.utils.tasks.ingest as ingest
 from drpActor.utils.tasks.detrend import DetrendTask
-from drpActor.utils.tasks.reduceExposure import ReduceExposureTask
 from drpActor.utils.tasks.ipc import IPCTask
+from drpActor.utils.tasks.reduceExposure import ReduceExposureTask
 from twisted.internet import reactor
 
 
@@ -15,7 +16,7 @@ class TasksExec:
         self.defects = dict()
         self.executor = concurrent.futures.ProcessPoolExecutor(engine.nProcesses)
 
-        self.ingestTask = engine.ingestFlavour.bootstrap(self)
+        self.ingestTask = ingest.factory(engine.settings['ingestPgsql']).bootstrap(self)
         self.detrendTask = DetrendTask.bootstrap(self)
         self.ipcTask = IPCTask.bootstrap(self)
         self.reduceExposureTask = ReduceExposureTask.bootstrap(self)

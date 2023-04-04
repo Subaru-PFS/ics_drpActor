@@ -79,9 +79,6 @@ class DotRoach(object):
             for file in files:
                 self.getFiberTrace(file.dataId)
 
-        # now we can safely deactivate autoIngest to save time.
-        self.engine.doAutoIngest = False
-
         for file in files:
             fiberTrace, detectorMap = self.getFiberTrace(file.dataId)
             p = multiprocessing.Process(target=parallelize,
@@ -203,7 +200,7 @@ class DotRoach(object):
             newIter['nIter'] = int(0)
             return newIter
 
-        # We dont have any criteria left, so force keepMoving for now.
+        # We do not have any criteria left, so force keepMoving for now.
         keepMoving = np.ones(len(newIter), dtype='bool')
 
         # logical and with previous iteration

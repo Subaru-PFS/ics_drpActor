@@ -92,7 +92,7 @@ class DrpActor(Actor):
         except ValueError:
             return
 
-        reactor.callLater(1, self.engine.genIngestStatus, visit)
+        reactor.callLater(0.2, self.engine.newVisit, visit)
 
     def newPfsDesign(self, keyvar):
         try:
