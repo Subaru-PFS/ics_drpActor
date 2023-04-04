@@ -1,13 +1,11 @@
 import os
 from importlib import reload
 
-import drpActor.utils.cmdList as cmdList
 import drpActor.utils.dotRoach as dotRoach
 import drpActor.utils.tasks.ingest as ingestTask
 import drpActor.utils.tasks.tasksExec as tasksExec
 import lsst.daf.persistence as dafPersist
 
-reload(cmdList)
 reload(dotRoach)
 
 
@@ -62,12 +60,15 @@ class DrpEngine(object):
 
         return butler
 
+    def inspect(self, file):
+        """Assessing what has been done on this file/dataId."""
+        file.initialize(self.butler)
+        self.logger.info(f'id={str(file.dataId)} ingested={file.ingested} calexp={file.calexp} pfsArm={file.pfsArm}')
+        self.fileBuffer.append(file)
+
     def newExposure(self, file):
         """ Add new file into the buffer. """
-        # Assessing what has been done on this file/dataId .
-        file.initialize(self.butler)
-        self.logger.info(f'id : {str(file.dataId)} ingested={file.ingested} calexp={file.calexp} pfsArm={file.pfsArm}')
-        self.fileBuffer.append(file)
+        self.inspect(file)
 
         if self.doAutoIngest and not file.ingested:
             self.tasks.ingest(file)

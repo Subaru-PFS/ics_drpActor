@@ -1,14 +1,14 @@
 import os
+import time
 from importlib import reload
 
-import drpActor.utils.cmdList as cmdList
 import drpActor.utils.dotRoach as dotRoach
-import lsst.daf.persistence as dafPersist
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
+from drpActor.utils.files import CCDFile, HxFile
+from ics.utils.sps.spectroIds import SpectroIds
 
 reload(dotRoach)
-reload(cmdList)
 
 
 class DrpCmd(object):
@@ -26,7 +26,7 @@ class DrpCmd(object):
             ('ping', '', self.ping),
             ('status', '', self.status),
             ('ingest', '<filepath>', self.ingest),
-            ('detrend', '<visit> <arm> [<rerun>]', self.detrend),
+            ('detrend', '<visit> <arm> <spectrograph>', self.detrend),
 
             ('startDotRoach', '<dataRoot> <maskFile> [@(keepMoving)]', self.startDotRoach),
             ('stopDotRoach', '', self.stopDotRoach),
@@ -45,6 +45,7 @@ class DrpCmd(object):
                                         keys.Key("filepath", types.String(), help="Raw FITS File path"),
                                         keys.Key("arm", types.String(), help="arm"),
                                         keys.Key("visit", types.Int(), help="visitId"),
+                                        keys.Key("spectrograph", types.Int(), help="spectrograph id"),
                                         keys.Key("dataRoot", types.String(),
                                                  help="dataRoot which will contain the generated outputs"),
                                         keys.Key("maskFile", types.String(),
@@ -65,44 +66,62 @@ class DrpCmd(object):
         cmd.finish()
 
     def ingest(self, cmd):
-        def doIngest(filepath, target, pfsConfigDir, mode):
-            drpCmd = cmdList.Ingest(filepath, target=target, pfsConfigDir=pfsConfigDir, mode=mode)
-            cmd.debug('text="ingest cmd started on %s"' % (filepath))
-            return drpCmd.run()
-
+        """Ingest file providing a filepath."""
         cmdKeys = cmd.cmd.keywords
-        target = cmdKeys["target"].values[0] if 'target' in cmdKeys else self.engine.target
-        pfsConfigDir = cmdKeys["pfsConfigDir"].values[0] if 'pfsConfigDir' in cmdKeys else self.engine.pfsConfigDir
-        mode = cmdKeys["mode"].values[0] if 'mode' in cmdKeys else self.engine.ingestMode
 
         filepath = cmdKeys["filepath"].values[0]
-        doIngest(filepath, target, pfsConfigDir, mode)
+        rootNight, fname = os.path.split(filepath)
+
+        if 'sps' in filepath:
+            File = CCDFile
+            rootNight, __ = os.path.split(rootNight)
+        else:
+            File = HxFile
+
+        root, night = os.path.split(rootNight)
+
+        file = File(root, night, fname)
+        self.engine.inspect(file)
+
+        if file.ingested:
+            cmd.finish('text="file already ingested..."')
+            return
+
+        self.engine.tasks.ingest(file)
 
         cmd.finish(f"ingest={filepath}")
 
     def detrend(self, cmd):
-        def doDetrend(target, CALIB, rerun, visit):
-            drpCmd = cmdList.Detrend(target, CALIB, rerun, visit)
-            cmd.debug('text="detrend cmd started on %s"' % (visit))
-            return drpCmd.run()
-
+        """Detrend image providing dataId"""
         cmdKeys = cmd.cmd.keywords
 
         visit = cmdKeys["visit"].values[0]
+        spectrograph = cmdKeys["spectrograph"].values[0]
         arm = cmdKeys["arm"].values[0]
-        target = cmdKeys["target"].values[0] if 'target' in cmdKeys else self.engine.target
-        CALIB = cmdKeys["CALIB"].values[0] if 'CALIB' in cmdKeys else self.engine.CALIB
-        rerun = cmdKeys["rerun"].values[0] if 'rerun' in cmdKeys else self.engine.rerun
 
-        doDetrend(target, CALIB, rerun, visit)
+        File = HxFile if arm == 'n' else CCDFile
 
-        if 'target' in cmdKeys or 'rerun' in cmdKeys:
-            butler = dafPersist.Butler(os.path.join(target, 'rerun', rerun))
-        else:
-            butler = self.engine.butler
+        fname = f'PF**{visit:06d}{spectrograph}{SpectroIds.validArms[arm]}.fits'
+        root = '/data/raw'
+        night = '2023-*-*/'
 
-        imPath = butler.getUri('calexp', arm=arm, visit=visit)
-        cmd.finish(f"detrend={imPath}")
+        file = File(root, night, fname)
+        self.engine.inspect(file)
+
+        if not file.ingested:
+            cmd.fail('text="file was not ingested..."')
+            return
+
+        self.engine.tasks.detrend(file)
+
+        start = time.time()
+
+        while file.state != 'idle':
+            if (time.time() - start) > 30:
+                raise RuntimeError('could not get detrend image after 30 secs')
+            time.sleep(0.1)
+
+        cmd.finish(f"detrend={file.calexp}")
 
     def startDotRoach(self, cmd):
         """ Start dot loop. """
