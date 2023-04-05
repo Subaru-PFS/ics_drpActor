@@ -71,7 +71,7 @@ class DotRoach(object):
 
         def parallelize(butler, dataId, fiberTrace, detectorMap, fluxPerFiber):
             flux = extractFlux.getWindowedFluxes(butler, dataId,
-                                                 fiberTrace=fiberTrace, detectorMap=detectorMap, useButler=False)
+                                                 fiberTrace=fiberTrace, detectorMap=detectorMap, useButler=True)
             fluxPerFiber.append(flux)
 
         # load fiberTraces on first iteration presumably.
@@ -179,7 +179,7 @@ class DotRoach(object):
             """"""
             gradient = fluxRatio[-1] - fluxRatio[-2]
             gain = gradient / fluxRatio[-1]
-            ratioInPhase1 = fluxRatio[:(self.maxIterInPhase1 + 1)]
+            ratioInPhase1 = fluxRatio[:(self.maxIterInPhase1 + 1)]  # per python excluding upper boundary.
 
             if self.strategy == 'phase1' and fluxRatio[-1] < goalInPhase1:
                 flag = 1
@@ -208,6 +208,7 @@ class DotRoach(object):
 
         prevState = lastIter.keepMoving
         keepMoving = np.logical_and(prevState, keepMoving).to_numpy()
+        nIter = lastIter.nIter.to_numpy() + 1
 
         for cobraId, df in allIterations.groupby('cobraId'):
             df = df.sort_values('nIter')
@@ -225,6 +226,7 @@ class DotRoach(object):
             keepMoving[iCob] = flag == 0
 
         if self.phase == 'phase1->phase2':
+            self.maxIterInPhase1 = nIter
             self.phase = 'phase2'
             keepMoving = self.didOvershoot.bitMask.astype('bool').to_numpy()
 
@@ -233,7 +235,7 @@ class DotRoach(object):
             keepMoving = self.didOvershoot.bitMask.astype('bool').to_numpy()
 
         newIter['keepMoving'] = keepMoving
-        newIter['nIter'] = lastIter.nIter.to_numpy() + 1
+        newIter['nIter'] = nIter
 
         # append to current allIterations
         allIterations = pd.concat([allIterations, newIter]).reset_index(drop=True)
@@ -249,7 +251,6 @@ class DotRoach(object):
     def phase2(self):
         """"""
         self.phase = 'phase1->phase2'
-        self.maxIterInPhase1 = self.loadAllIterations().nIter.max() + 1
 
     def phase3(self):
         """"""
