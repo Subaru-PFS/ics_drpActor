@@ -2,7 +2,7 @@ setupOptional(pfs_pipe2d)
 
 setupRequired(tron_actorcore)
 setupRequired(ics_actorkeys)
-
+setupRequired(pfs_instdata)
 
 
 pathPrepend(PATH, ${PRODUCT_DIR}/bin)
