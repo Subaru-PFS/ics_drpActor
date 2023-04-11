@@ -21,6 +21,8 @@ class TasksExec:
         self.ipcTask = IPCTask.bootstrap(self)
         self.reduceExposureTask = ReduceExposureTask.bootstrap(self)
 
+        self.actor.cleanLogHandlers()  # the drp parsers add some unwanted handlers, get rid of those.
+
     @property
     def actor(self):
         return self.engine.actor

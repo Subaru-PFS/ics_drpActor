@@ -16,6 +16,7 @@ from twisted.internet import reactor
 
 class DrpActor(Actor):
     allSites = dict(L='LAM', S='SUBARU', Z='HILO')
+    nHandlers = 2  # [<StreamHandler <stderr> (INFO)>, <OpsRotatingFileHandler /data/logs/actors/drp/$DATE.log (DEBUG)>]
 
     def __init__(self, name, productName=None, configFile=None, logLevel=30):
         # This sets up the connections to/from the hub, the logger, and the twisted reactor.
@@ -101,6 +102,14 @@ class DrpActor(Actor):
             return
 
         self.engine.newPfsDesign(designId)
+
+    def cleanLogHandlers(self):
+        """Drp argument parser add some unwanted handlers, get rid of those."""
+        logger = logging.getLogger()
+
+        while len(logger.handlers) > DrpActor.nHandlers:
+            logger.info(f'removing logger handler : {logger.handlers[DrpActor.nHandlers]}')
+            logger.removeHandler(logger.handlers[DrpActor.nHandlers])
 
 
 def main():

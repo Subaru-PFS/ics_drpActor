@@ -49,6 +49,7 @@ class DetrendTask(BaseTask):
         # resetting the frozen config file.
         self.parsedCmd.config = DetrendTask.ConfigClass()
         parser = self._makeArgumentParser()
+        self.tasksExec.actor.cleanLogHandlers()  # the parser add some unwanted handlers, get rid of those.
         parser._applyInitialOverrides(self.parsedCmd)
 
         # updating the idList.
