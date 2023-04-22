@@ -1,6 +1,7 @@
 import logging
 import multiprocessing
 import os
+import time
 
 import drpActor.utils.extractFlux as extractFlux
 import numpy as np
@@ -11,6 +12,7 @@ from pfs.utils.fiberids import FiberIds
 class DotRoach(object):
     gfm = pd.DataFrame(FiberIds().data)
     sgfm = gfm[gfm.cobraId != FiberIds.MISSING_VALUE]
+    processTimeout = 15
 
     def __init__(self, engine, dataRoot, maskFile, keepMoving=False):
         """ Placeholder to handle DotRoach loop"""
@@ -255,6 +257,20 @@ class DotRoach(object):
     def phase3(self):
         """"""
         self.phase = 'phase2->phase3'
+
+    def waitForResult(self, iteration):
+        """Wait for maskFile to be created."""
+        overHead = 10 if iteration == 0 else 0
+        iterFile = os.path.join(self.pathDict['maskFilesRoot'], f'iter{iteration}.csv')
+        start = time.time()
+
+        while not os.path.isfile(iterFile):
+            now = time.time()
+
+            if (now - start) > (DotRoach.processTimeout + overHead):
+                raise RuntimeError(f'no results after {round(start - now, 1)}')
+
+            time.sleep(0.1)
 
     def status(self, cmd):
         """ """
