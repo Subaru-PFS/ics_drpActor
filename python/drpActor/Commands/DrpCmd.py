@@ -30,7 +30,7 @@ class DrpCmd(object):
 
             ('startDotRoach', '<dataRoot> <maskFile> [@(keepMoving)]', self.startDotRoach),
             ('stopDotRoach', '', self.stopDotRoach),
-            ('processDotRoach', '', self.processDotRoach),
+            ('processDotRoach', '<iteration>', self.processDotRoach),
             ('dotRoach', '@phase2', self.dotRoachPhase2),
             ('dotRoach', '@phase3', self.dotRoachPhase3),
 
@@ -44,6 +44,7 @@ class DrpCmd(object):
                                         keys.Key("rerun", types.String(), help="rerun drp folder"),
                                         keys.Key("filepath", types.String(), help="Raw FITS File path"),
                                         keys.Key("arm", types.String(), help="arm"),
+                                        keys.Key("iteration", types.Int(), help="dotRoach iteration"),
                                         keys.Key("visit", types.Int(), help="visitId"),
                                         keys.Key("spectrograph", types.Int(), help="spectrograph id"),
                                         keys.Key("dataRoot", types.String(),
@@ -138,7 +139,12 @@ class DrpCmd(object):
 
     def processDotRoach(self, cmd):
         """ Data is actually processed on the fly, just basically generate status. """
+        cmdKeys = cmd.cmd.keywords
+        iteration = cmdKeys['iteration'].values[0]
+
+        self.engine.dotRoach.waitForResult(iteration)
         self.engine.dotRoach.status(cmd)
+
         cmd.finish()
 
     def dotRoachPhase2(self, cmd):
