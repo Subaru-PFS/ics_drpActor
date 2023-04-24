@@ -117,10 +117,10 @@ class DrpCmd(object):
 
         start = time.time()
 
-        while file.state != 'idle':
-            if (time.time() - start) > 30:
-                raise RuntimeError('could not get detrend image after 30 secs')
-            time.sleep(0.1)
+        while file.state != 'idle' and file.calexp is None:
+            if (time.time() - start) > 180:
+                raise RuntimeError('could not get detrend image after 180 secs')
+            time.sleep(1)
 
         cmd.finish(f"detrend={file.calexp}")
 
