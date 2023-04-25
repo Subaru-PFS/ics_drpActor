@@ -228,7 +228,7 @@ class DotRoach(object):
             keepMoving[iCob] = flag == 0
 
         if self.phase == 'phase1->phase2':
-            self.maxIterInPhase1 = nIter
+            self.maxIterInPhase1 = max(nIter)
             self.phase = 'phase2'
             keepMoving = self.didOvershoot.bitMask.astype('bool').to_numpy()
 
@@ -268,7 +268,7 @@ class DotRoach(object):
             now = time.time()
 
             if (now - start) > (DotRoach.processTimeout + overHead):
-                raise RuntimeError(f'no results after {round(start - now, 1)}')
+                raise RuntimeError(f'no results after {round(now - start, 1)}')
 
             time.sleep(0.1)
 
