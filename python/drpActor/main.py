@@ -15,7 +15,7 @@ from twisted.internet import reactor
 
 
 class DrpActor(Actor):
-    allSites = dict(L='LAM', S='SUBARU', Z='HILO')
+    allSites = dict(L='LAM', S='SUBARU', H='HILO')
     nHandlers = 2  # [<StreamHandler <stderr> (INFO)>, <OpsRotatingFileHandler /data/logs/actors/drp/$DATE.log (DEBUG)>]
 
     def __init__(self, name, productName=None, configFile=None, logLevel=30):
@@ -28,7 +28,9 @@ class DrpActor(Actor):
         self.ccds = [f'ccd_{cam}' for cam in vis]
         self.hxs = [f'hx_{cam}' for cam in nir]
 
-        self.site = DrpActor.allSites[getSite()][0]
+        # default return S now.
+        site = 'H' if name == 'drp2' else getSite()
+        self.site = site
 
         Actor.__init__(self, name,
                        productName=productName,
