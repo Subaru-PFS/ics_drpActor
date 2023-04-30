@@ -63,6 +63,8 @@ class DrpCmd(object):
 
     def status(self, cmd):
         """Report status and version; obtain and send current data"""
+        self.actor.sendVersionKey(cmd)
+
         cmd.inform('text="Present!"')
         cmd.finish()
 
