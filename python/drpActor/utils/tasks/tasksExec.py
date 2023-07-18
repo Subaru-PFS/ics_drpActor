@@ -9,11 +9,12 @@ from twisted.internet import reactor
 
 
 class TasksExec:
+    cacheCalibs = ['defects', 'flat']
 
     def __init__(self, engine):
         self.engine = engine
 
-        self.defects = dict()
+        self.calibs = dict()
         self.executor = concurrent.futures.ProcessPoolExecutor(engine.nProcesses)
 
         self.ingestTask = ingest.factory(engine.settings['ingestPgsql']).bootstrap(self)
@@ -31,17 +32,20 @@ class TasksExec:
     def butler(self):
         return self.engine.butler
 
-    def getDefects(self, dataId):
-        """getting defects from butler or memory."""
+    def getCalibs(self, dataId):
+        """getting calibs from butler or memory."""
         cameraKey = dataId['spectrograph'], dataId['arm']
 
-        if cameraKey not in self.defects:
-            self.actor.logger.info(f'loading defects for {cameraKey}')
-            defects = self.butler.get("defects", dataId)
+        if cameraKey not in self.calibs:
+            calib = dict()
 
-            self.defects[cameraKey] = defects
+            for calibName in TasksExec.cacheCalibs:
+                self.actor.logger.info(f'loading {calibName} for {cameraKey}')
+                calib[calibName] = self.butler.get(calibName, dataId)
 
-        return self.defects[cameraKey]
+            self.calibs[cameraKey] = calib
+
+        return self.calibs[cameraKey]
 
     def ingest(self, file):
         """"""
@@ -53,7 +57,7 @@ class TasksExec:
         file.state = 'processing'
         if file.arm == 'n':
             # always get defects from the main process.
-            self.getDefects(file.dataId)
+            self.getCalibs(file.dataId)
             self.ipcTask.runFromActor(file)
         else:
             self.detrendTask.runFromActor(file)
