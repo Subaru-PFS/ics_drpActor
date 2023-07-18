@@ -12,10 +12,10 @@ def runOutsideClass(dataId):
     instance."""
     # raw image is actually :  hdu[-1] - hdu[0], both reference pixel subtracted, reset frame is ignored.
     cds = tasksExec.butler.get('raw', dataId=dataId)
-    defects = tasksExec.getDefects(dataId)
+    calibs = tasksExec.getCalibs(dataId)
 
     logging.info(f'running doIPCTask for {dataId}')
-    calexp = tasksExec.ipcTask.run(cds, defects=defects).exposure
+    calexp = tasksExec.ipcTask.run(cds, defects=calibs['defects'], flat=calibs['flat']).exposure
 
     logging.info(f'doIPCTask done, putting output to butler.')
     tasksExec.butler.put(calexp, 'calexp', dataId)
@@ -37,7 +37,7 @@ class IPCTask(IsrTask):
         config.doLinearize = False
         config.doDefect = True
         config.doIPC = True
-        config.ipcCoeffs = np.array([13e-3, 6e-3])
+        #config.ipcCoeffs = np.array([13e-3, 6e-3])
         config.doSaturationInterpolation = False
         config.validate()
 
