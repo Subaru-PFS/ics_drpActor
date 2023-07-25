@@ -9,7 +9,7 @@ from twisted.internet import reactor
 
 
 class TasksExec:
-    cacheCalibs = ['defects', 'flat']
+    cacheCalibs = ['defects', 'flat', 'ipc']
 
     def __init__(self, engine):
         self.engine = engine

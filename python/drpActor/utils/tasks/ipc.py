@@ -15,7 +15,7 @@ def runOutsideClass(dataId):
     calibs = tasksExec.getCalibs(dataId)
 
     logging.info(f'running doIPCTask for {dataId}')
-    calexp = tasksExec.ipcTask.run(cds, defects=calibs['defects'], flat=calibs['flat']).exposure
+    calexp = tasksExec.ipcTask.run(cds, defects=calibs['defects'], flat=calibs['flat'], ipcCoeffs=calibs['ipc']).exposure
 
     logging.info(f'doIPCTask done, putting output to butler.')
     tasksExec.butler.put(calexp, 'calexp', dataId)
