@@ -260,7 +260,7 @@ class DotRoach(object):
 
     def waitForResult(self, iteration):
         """Wait for maskFile to be created."""
-        overHead = 10 if iteration == 0 else 0
+        overHead = 20 if iteration == 0 else 0
         iterFile = os.path.join(self.pathDict['maskFilesRoot'], f'iter{iteration}.csv')
         start = time.time()
 
