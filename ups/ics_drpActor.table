@@ -1,4 +1,5 @@
 setupOptional(pfs_pipe2d)
+setupRequired(drp_qa)
 
 setupRequired(tron_actorcore)
 setupRequired(ics_actorkeys)
