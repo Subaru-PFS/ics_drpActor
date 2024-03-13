@@ -20,6 +20,8 @@ class PfsFile(object):
         self.raw_md = None
         self.calexp = None
         self.pfsArm = None
+        self.dmQaResidualImage = None
+        self.extQaStats = None
 
         self.state = 'idle'
 
@@ -70,6 +72,26 @@ class PfsFile(object):
                 pass
 
         return self.pfsArm
+
+    def getDmQaResidualImage(self, butler):
+        """Check if detectorMap QA has been produced."""
+        if self.pfsArm and not self.dmQaResidualImage:
+            try:
+                self.dmQaResidualImage = butler.getUri('dmQaResidualImage', **self.dataId)
+            except:
+                pass
+
+        return self.dmQaResidualImage
+
+    def getExtQaStats(self, butler):
+        """Check if detectorMap QA has been produced."""
+        if self.pfsArm and not self.extQaStats:
+            try:
+                self.extQaStats = butler.getUri('extQaStats', **self.dataId)
+            except:
+                pass
+
+        return self.extQaStats
 
 
 class CCDFile(PfsFile):

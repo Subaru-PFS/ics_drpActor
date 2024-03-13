@@ -25,6 +25,8 @@ class DrpEngine(object):
         self.doAutoIngest = False
         self.doAutoDetrend = False
         self.doAutoReduce = False
+        self.doDetectorMapQa = False
+        self.doExtractionQa = False
 
         # default setting from config file.
         self.setSettings()
@@ -75,6 +77,12 @@ class DrpEngine(object):
 
         if self.doAutoReduce and file.ingested:
             self.tasks.reduceExposure(file)
+
+            if self.doDetectorMapQa and file.pfsArm:
+                self.tasks.doDetectorMapQa(file)
+
+            if self.doExtractionQa and file.pfsArm:
+                self.tasks.doExtractionQa(file)
 
     def newVisit(self, visit):
         """New sps visit callback."""
@@ -143,15 +151,19 @@ class DrpEngine(object):
         self.dotRoach.finish()
         self.dotRoach = None
 
-    def setSettings(self, doAutoIngest=None, doAutoDetrend=None, doAutoReduce=None):
+    def setSettings(self, doAutoIngest=None, doAutoDetrend=None, doAutoReduce=None, doDetectorMapQa=None, doExtractionQa=None):
         """Setting engine parameters."""
         doAutoIngest = self.settings['doAutoIngest'] if doAutoIngest is None else doAutoIngest
         doAutoDetrend = self.settings['doAutoDetrend'] if doAutoDetrend is None else doAutoDetrend
         doAutoReduce = self.settings['doAutoReduce'] if doAutoReduce is None else doAutoReduce
+        doDetectorMapQa = self.settings['doDetectorMapQa'] if doDetectorMapQa is None else doDetectorMapQa
+        doExtractionQa = self.settings['doExtractionQa'] if doExtractionQa is None else doExtractionQa
 
         self.doAutoIngest = doAutoIngest
         self.doAutoDetrend = doAutoDetrend
         self.doAutoReduce = doAutoReduce
+        self.doDetectorMapQa = doDetectorMapQa
+        self.doExtractionQa = doExtractionQa
 
     def newPfsDesign(self, designId):
         """New PfsDesign has been declared, copy it to the repo if new."""
