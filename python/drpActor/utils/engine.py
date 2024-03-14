@@ -81,8 +81,8 @@ class DrpEngine(object):
             if self.doDetectorMapQa and file.pfsArm:
                 self.tasks.doDetectorMapQa(file)
 
-            if self.doExtractionQa and file.pfsArm:
-                self.tasks.doExtractionQa(file)
+            #if self.doExtractionQa and file.pfsArm:
+            #    self.tasks.doExtractionQa(file)
 
     def newVisit(self, visit):
         """New sps visit callback."""
