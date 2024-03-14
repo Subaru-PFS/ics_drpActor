@@ -69,16 +69,24 @@ class DrpEngine(object):
         if self.doAutoIngest and not file.ingested:
             self.tasks.ingest(file)
 
-        if self.doAutoDetrend and file.ingested:
+        if not file.ingested:
+            self.logger.warning(f'id={str(file.dataId)} failed to be ingested...')
+            return
+
+        if self.doAutoDetrend:
             if file.calexp:
                 self.genDetrendKey(file)
             else:
                 self.tasks.detrend(file)
 
-        if self.doAutoReduce and file.ingested:
-            self.tasks.reduceExposure(file)
+        if self.doAutoReduce:
+            if file.pfsArm:
+                self.genPfsArmKey(file)
+            else:
+                self.tasks.reduceExposure(file)
 
             if self.doDetectorMapQa and file.pfsArm:
+                self.logger.info(f'firing detectorMap QA for {str(file.dataId)}')
                 self.tasks.doDetectorMapQa(file)
 
             #if self.doExtractionQa and file.pfsArm:
@@ -106,6 +114,13 @@ class DrpEngine(object):
             cmd.inform(f"detrend={file.calexp}")
 
         self.genDetrendStatus(file.visit, cmd=cmd)
+
+    def genPfsArmKey(self, file, cmd=None):
+        """Generate pfsArm key to display image with gingaActor."""
+        cmd = self.actor.bcast if cmd is None else cmd
+
+        if file.pfsArm:
+            cmd.inform(f"pfsArm={file.pfsArm}")
 
     def genIngestStatus(self, visit, cmd=None):
         """Generate ingestStatus key."""
