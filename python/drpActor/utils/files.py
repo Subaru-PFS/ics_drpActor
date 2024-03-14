@@ -67,7 +67,7 @@ class PfsFile(object):
         """Check if armFile has been produced."""
         if self.ingested and not self.pfsArm:
             try:
-                self.pfsArm = butler.get('pfsArm', **self.dataId)
+                self.pfsArm = butler.getUri('pfsArm', **self.dataId)
             except:
                 pass
 
