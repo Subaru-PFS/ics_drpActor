@@ -89,6 +89,9 @@ class DrpEngine(object):
                 self.logger.info(f'firing detectorMap QA for {str(file.dataId)}')
                 self.tasks.doDetectorMapQa(file)
 
+            else:
+                self.logger.warning(f'no pfsArm available for {str(file.dataId)}')
+
             #if self.doExtractionQa and file.pfsArm:
             #    self.tasks.doExtractionQa(file)
 
