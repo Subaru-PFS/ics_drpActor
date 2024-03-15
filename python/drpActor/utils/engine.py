@@ -25,6 +25,8 @@ class DrpEngine(object):
         self.doAutoIngest = False
         self.doAutoDetrend = False
         self.doAutoReduce = False
+        self.doDetectorMapQa = False
+        self.doExtractionQa = False
 
         # default setting from config file.
         self.setSettings()
@@ -61,20 +63,39 @@ class DrpEngine(object):
         self.fileBuffer.append(file)
 
     def newExposure(self, file):
-        """Add new file into the buffer."""
+        """
+        Add new PfsFile into the buffer.
+
+        This function inspects the file, ingests it if it's not already ingested and doAutoIngest is True,
+        and then performs detrending and reduction if doAutoDetrend and doAutoReduce are True, respectively.
+        If the file has a calexp, a detrend key is generated. If the file has a pfsArm, a pfsArm key is generated.
+        All tasks are run in parallel, except for the ingest task which is run in the same thread.
+
+        Parameters:
+        file (drpActor.utils.files.PfsFile): The file object to be added into the buffer.
+
+        """
         self.inspect(file)
 
         if self.doAutoIngest and not file.ingested:
             self.tasks.ingest(file)
 
-        if self.doAutoDetrend and file.ingested:
+        if not file.ingested:
+            self.logger.warning(f'id={str(file.dataId)} failed to be ingested...')
+            return
+
+        # Ingest is made is the same thread, but from this point tasks are run in parallel.
+        if self.doAutoDetrend:
             if file.calexp:
                 self.genDetrendKey(file)
             else:
                 self.tasks.detrend(file)
 
-        if self.doAutoReduce and file.ingested:
-            self.tasks.reduceExposure(file)
+        if self.doAutoReduce:
+            if file.pfsArm:
+                self.genPfsArmKey(file)
+            else:
+                self.tasks.reduceExposure(file)
 
     def newVisit(self, visit):
         """New sps visit callback."""
@@ -98,6 +119,47 @@ class DrpEngine(object):
             cmd.inform(f"detrend={file.calexp}")
 
         self.genDetrendStatus(file.visit, cmd=cmd)
+
+    def genPfsArmKey(self, file, cmd=None):
+        """Generate pfsArm key and fire QA task."""
+        cmd = self.actor.bcast if cmd is None else cmd
+
+        if file.pfsArm:
+            cmd.inform(f"pfsArm={file.pfsArm}")
+
+            self.fireQaTasks(file, cmd=cmd)
+
+    def fireQaTasks(self, file, cmd):
+        """ Perform QA tasks for a given file."""
+        # Perform detectorMapQa if the option is activated.
+        if self.doDetectorMapQa:
+            if not file.dmQaResidualImage:
+                self.logger.info(f'firing detectorMap QA for {str(file.dataId)}')
+                self.tasks.doDetectorMapQa(file)
+            else:
+                self.genDetectorMapQaKey(file, cmd=cmd)
+
+        # Perform extractionQa if the option is activated.
+        if self.doExtractionQa:
+            if not file.extQaStats:
+                self.logger.info(f'firing extraction QA for {str(file.dataId)}')
+                self.tasks.doExtractionQa(file)
+            else:
+                self.genExtractionQaKey(file, cmd=cmd)
+
+    def genDetectorMapQaKey(self, file, cmd=None):
+        """Generate genDetectorMapQa key."""
+        cmd = self.actor.bcast if cmd is None else cmd
+
+        if file.dmQaResidualImage:
+            cmd.inform(f"dmQaResidualImage={file.dmQaResidualImage}")
+
+    def genExtractionQaKey(self, file, cmd=None):
+        """Generate genDetectorMapQa key."""
+        cmd = self.actor.bcast if cmd is None else cmd
+
+        if file.extQaStats:
+            cmd.inform(f"extQaStats={file.extQaStats}")
 
     def genIngestStatus(self, visit, cmd=None):
         """Generate ingestStatus key."""
@@ -143,15 +205,20 @@ class DrpEngine(object):
         self.dotRoach.finish()
         self.dotRoach = None
 
-    def setSettings(self, doAutoIngest=None, doAutoDetrend=None, doAutoReduce=None):
+    def setSettings(self, doAutoIngest=None, doAutoDetrend=None, doAutoReduce=None,
+                    doDetectorMapQa=None, doExtractionQa=None):
         """Setting engine parameters."""
         doAutoIngest = self.settings['doAutoIngest'] if doAutoIngest is None else doAutoIngest
         doAutoDetrend = self.settings['doAutoDetrend'] if doAutoDetrend is None else doAutoDetrend
         doAutoReduce = self.settings['doAutoReduce'] if doAutoReduce is None else doAutoReduce
+        doDetectorMapQa = self.settings['doDetectorMapQa'] if doDetectorMapQa is None else doDetectorMapQa
+        doExtractionQa = self.settings['doExtractionQa'] if doExtractionQa is None else doExtractionQa
 
         self.doAutoIngest = doAutoIngest
         self.doAutoDetrend = doAutoDetrend
         self.doAutoReduce = doAutoReduce
+        self.doDetectorMapQa = doDetectorMapQa
+        self.doExtractionQa = doExtractionQa
 
     def newPfsDesign(self, designId):
         """New PfsDesign has been declared, copy it to the repo if new."""

@@ -5,6 +5,8 @@ import drpActor.utils.tasks.ingest as ingest
 from drpActor.utils.tasks.detrend import DetrendTask
 from drpActor.utils.tasks.ipc import IPCTask
 from drpActor.utils.tasks.reduceExposure import ReduceExposureTask
+from drpActor.utils.tasks.detectorMapQa import DetectorMapQaTask
+from drpActor.utils.tasks.extractionQa import ExtractionQaTask
 from twisted.internet import reactor
 
 
@@ -21,6 +23,8 @@ class TasksExec:
         self.detrendTask = DetrendTask.bootstrap(self)
         self.ipcTask = IPCTask.bootstrap(self)
         self.reduceExposureTask = ReduceExposureTask.bootstrap(self)
+        self.detectorMapQaTask = DetectorMapQaTask.bootstrap(self)
+        self.extractionQaTask = ExtractionQaTask.bootstrap(self)
 
         self.actor.cleanLogHandlers()  # the drp parsers add some unwanted handlers, get rid of those.
 
@@ -67,6 +71,14 @@ class TasksExec:
         file.state = 'processing'
         self.reduceExposureTask.runFromActor(file)
 
+    def doDetectorMapQa(self, file):
+        file.state = 'QA'
+        self.detectorMapQaTask.runFromActor(file)
+
+    def doExtractionQa(self, file):
+        file.state = 'QA'
+        self.extractionQaTask.runFromActor(file)
+
     def waitForCalexp(self, file, *args, sleepTime=0.1, timeout=10, **kwargs):
         """CallBack called whenever an H4 image is detrended."""
 
@@ -101,6 +113,44 @@ class TasksExec:
                 time.sleep(sleepTime)
 
             file.state = 'idle'
-            self.engine.logger.info(f'pfsArm successfully generated for {str(file.dataId)} !')
+            self.engine.genPfsArmKey(file)
+
+        reactor.callLater(0.1, fromThisThread)
+
+    def waitForDetectorMapQa(self, file, *args, sleepTime=0.1, timeout=10, **kwargs):
+        """CallBack called whenever an H4 image is detrended."""
+
+        def fromThisThread():
+            start = time.time()
+
+            while not file.getDmQaResidualImage(self.butler):
+                if (time.time() - start) > timeout:
+                    file.state = 'idle'
+                    self.engine.logger.warning(f'failed to get detectorMapQA for {str(file.dataId)}')
+                    return
+
+                time.sleep(sleepTime)
+
+            file.state = 'idle'
+            self.engine.genDetectorMapQaKey(file)
+
+        reactor.callLater(0.1, fromThisThread)
+
+    def waitForExtractionQa(self, file, *args, sleepTime=0.1, timeout=10, **kwargs):
+        """CallBack called whenever an H4 image is detrended."""
+
+        def fromThisThread():
+            start = time.time()
+
+            while not file.getExtQaStats(self.butler):
+                if (time.time() - start) > timeout:
+                    file.state = 'idle'
+                    self.engine.logger.warning(f'failed to get extractionQa for {str(file.dataId)}')
+                    return
+
+                time.sleep(sleepTime)
+
+            file.state = 'idle'
+            self.engine.genExtractionQaKey(file)
 
         reactor.callLater(0.1, fromThisThread)

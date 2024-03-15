@@ -20,6 +20,8 @@ class PfsFile(object):
         self.raw_md = None
         self.calexp = None
         self.pfsArm = None
+        self.dmQaResidualImage = None
+        self.extQaStats = None
 
         self.state = 'idle'
 
@@ -40,6 +42,8 @@ class PfsFile(object):
         self.getRawMd(butler)
         self.getCalexp(butler)
         self.getPfsArm(butler)
+        self.getDmQaResidualImage(butler)
+        self.getExtQaStats(butler)
 
     def getRawMd(self, butler):
         """Check is file has been ingested, setting state machine."""
@@ -65,11 +69,31 @@ class PfsFile(object):
         """Check if armFile has been produced."""
         if self.ingested and not self.pfsArm:
             try:
-                self.pfsArm = butler.get('pfsArm', **self.dataId)
+                self.pfsArm = butler.getUri('pfsArm', **self.dataId)
             except:
                 pass
 
         return self.pfsArm
+
+    def getDmQaResidualImage(self, butler):
+        """Check if detectorMap QA has been produced."""
+        if self.pfsArm and not self.dmQaResidualImage:
+            try:
+                self.dmQaResidualImage = butler.getUri('dmQaResidualImage', **self.dataId)
+            except:
+                pass
+
+        return self.dmQaResidualImage
+
+    def getExtQaStats(self, butler):
+        """Check if detectorMap QA has been produced."""
+        if self.pfsArm and not self.extQaStats:
+            try:
+                self.extQaStats = butler.getUri('extQaStats', **self.dataId)
+            except:
+                pass
+
+        return self.extQaStats
 
 
 class CCDFile(PfsFile):
