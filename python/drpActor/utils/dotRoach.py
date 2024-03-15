@@ -1,6 +1,7 @@
 import logging
 import multiprocessing
 import os
+import shutil
 import time
 
 import drpActor.utils.extractFlux as extractFlux
@@ -51,12 +52,14 @@ class DotRoach(object):
         maskFilesRoot = os.path.join(dataRoot, 'maskFiles')
         outputPath = os.path.join(dataRoot, 'allIterations.csv')
 
-        # creating repo
-        for newDir in [dataRoot, maskFilesRoot]:
-            os.mkdir(newDir)
+        # directory shouldn't exist, unless something as been ended prematurely.
+        if not os.path.isdir(dataRoot):
+            # creating repo
+            for newDir in [dataRoot, maskFilesRoot]:
+                os.mkdir(newDir)
 
-        # initialising output file.
-        pd.DataFrame([]).to_csv(outputPath)
+            # initialising output file.
+            pd.DataFrame([]).to_csv(outputPath)
 
         return dict(dataRoot=dataRoot, allIterations=outputPath, maskFilesRoot=maskFilesRoot)
 
@@ -246,9 +249,13 @@ class DotRoach(object):
     def finish(self):
         """ """
         rootDir, __ = os.path.split(self.pathDict["dataRoot"])
-        # renaming current to dedicated path.
-        visitMin = self.loadAllIterations().visit.min()
-        os.rename(self.pathDict["dataRoot"], os.path.join(rootDir, f'v{str(visitMin).zfill(6)}'))
+        try:
+            # renaming current to dedicated path.
+            visitMin = self.loadAllIterations().visit.min()
+            os.rename(self.pathDict["dataRoot"], os.path.join(rootDir, f'v{str(visitMin).zfill(6)}'))
+        except:
+            # no visit has been analysed you can remove it.
+            shutil.rmtree(self.pathDict["dataRoot"])
 
     def phase2(self):
         """"""

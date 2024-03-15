@@ -136,6 +136,12 @@ class DrpCmd(object):
         # keep moving no matter what.
         keepMoving = 'keepMoving' in cmdKeys
 
+        # lookup for any un-finalized roaching and finish it.
+        if os.path.isdir(dataRoot):
+            cmd.inform('text="found a DotRoach left-over, finishing it now..."')
+            roach = dotRoach.DotRoach(self.engine, dataRoot, maskFile)
+            roach.finish()
+
         self.engine.startDotRoach(dataRoot=dataRoot, maskFile=maskFile, keepMoving=keepMoving)
         cmd.finish('text="starting loop... Run dotRoaches, run ! "')
 
