@@ -113,7 +113,7 @@ class TasksExec:
                 time.sleep(sleepTime)
 
             file.state = 'idle'
-            self.engine.logger.info(f'pfsArm successfully generated for {str(file.dataId)} !')
+            self.engine.genPfsArmKey(file)
 
         reactor.callLater(0.1, fromThisThread)
 
@@ -132,7 +132,7 @@ class TasksExec:
                 time.sleep(sleepTime)
 
             file.state = 'idle'
-            self.engine.logger.info(f'detectorMapQA DONE : {file.dmQaResidualImage}')
+            self.engine.genDetectorMapQaKey(file)
 
         reactor.callLater(0.1, fromThisThread)
 
@@ -151,6 +151,6 @@ class TasksExec:
                 time.sleep(sleepTime)
 
             file.state = 'idle'
-            self.engine.logger.info(f'extractionQA DONE : {file.extQaStats}')
+            self.engine.genExtractionQaKey(file)
 
         reactor.callLater(0.1, fromThisThread)

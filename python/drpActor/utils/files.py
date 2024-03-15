@@ -42,6 +42,8 @@ class PfsFile(object):
         self.getRawMd(butler)
         self.getCalexp(butler)
         self.getPfsArm(butler)
+        self.getDmQaResidualImage(butler)
+        self.getExtQaStats(butler)
 
     def getRawMd(self, butler):
         """Check is file has been ingested, setting state machine."""
@@ -67,7 +69,7 @@ class PfsFile(object):
         """Check if armFile has been produced."""
         if self.ingested and not self.pfsArm:
             try:
-                self.pfsArm = butler.get('pfsArm', **self.dataId)
+                self.pfsArm = butler.getUri('pfsArm', **self.dataId)
             except:
                 pass
 
