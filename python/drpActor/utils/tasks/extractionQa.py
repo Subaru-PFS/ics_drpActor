@@ -1,13 +1,20 @@
 #!/usr/bin/env python
 import os
+import warnings
 from functools import partial
 
+import scipy.optimize as optimize
 from pfs.drp.qa.extractionQa import ExtractionQaTask as BaseTask
 
 
 def runOutsideClass(parsedCmd):
-    taskRunner = ExtractionQaTask.RunnerClass(TaskClass=BaseTask, parsedCmd=parsedCmd, doReturnResults=False)
-    return taskRunner.run(parsedCmd)
+    # deactivating annoying warnings for extraction qa.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=optimize.OptimizeWarning)
+        warnings.filterwarnings("ignore", category=RuntimeWarning)
+        warnings.filterwarnings("ignore", category=UserWarning)
+        taskRunner = ExtractionQaTask.RunnerClass(TaskClass=BaseTask, parsedCmd=parsedCmd, doReturnResults=False)
+        return taskRunner.run(parsedCmd)
 
 
 class ExtractionQaTask(BaseTask):
