@@ -110,7 +110,7 @@ class DrpActor(Actor):
         logger = logging.getLogger()
 
         while len(logger.handlers) > DrpActor.nHandlers:
-            logger.info(f'removing logger handler : {logger.handlers[DrpActor.nHandlers]}')
+            logger.debug(f'removing logger handler : {logger.handlers[DrpActor.nHandlers]}')
             logger.removeHandler(logger.handlers[DrpActor.nHandlers])
 
 

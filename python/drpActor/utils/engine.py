@@ -220,6 +220,24 @@ class DrpEngine(object):
         self.doDetectorMapQa = doDetectorMapQa
         self.doExtractionQa = doExtractionQa
 
+    def makeCmdArgs(self, visit, arm, spectrograph):
+        """
+        Create a command line argument string for processing a single visit, arm, and spectrograph.
+
+        Parameters:
+        visit (int): The visit number.
+        arm (str): The arm (e.g. 'b' for the blue arm).
+        spectrograph (int): The spectrograph number.
+
+        Returns:
+        str: The command line argument string.
+        """
+        CALIB = os.path.join(self.target, self.CALIB)
+
+        cmdArgs = f"{self.target} --processes 1 --calib {CALIB} --rerun {self.rerun} " \
+                  f"--id visit={visit} arm={arm} spectrograph={spectrograph} --clobber-config --no-versions"
+        return cmdArgs
+
     def newPfsDesign(self, designId):
         """New PfsDesign has been declared, copy it to the repo if new."""
         if not self.settings['doCopyDesignToPfsConfigDir']:
