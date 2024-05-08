@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 import logging
+import traceback
 from functools import partial
 
-import numpy as np
 from lsst.obs.pfs.isrTask import PfsIsrTask as IsrTask
 
 
@@ -11,14 +11,19 @@ def runOutsideClass(dataId):
     """Doing IPC task, note that this is called from multiprocessing, there isn't access to the actual tasksExec
     instance."""
     # raw image is actually :  hdu[-1] - hdu[0], both reference pixel subtracted, reset frame is ignored.
-    cds = tasksExec.butler.get('raw', dataId=dataId)
-    calibs = tasksExec.getCalibs(dataId)
+    try:
+        cds = tasksExec.butler.get('raw', dataId=dataId)
+        calibs = tasksExec.getCalibs(dataId)
 
-    logging.info(f'running doIPCTask for {dataId}')
-    calexp = tasksExec.ipcTask.run(cds, defects=calibs['defects'], flat=calibs['flat'], ipcCoeffs=calibs['ipc']).exposure
+        logging.info(f'running doIPCTask for {dataId}')
+        calexp = tasksExec.ipcTask.run(cds, defects=calibs['defects'], flat=calibs['flat'],
+                                       ipcCoeffs=calibs['ipc']).exposure
 
-    logging.info(f'doIPCTask done, putting output to butler.')
-    tasksExec.butler.put(calexp, 'calexp', dataId)
+        logging.info(f'doIPCTask done, putting output to butler.')
+        tasksExec.butler.put(calexp, 'calexp', dataId)
+
+    except Exception:
+        logging.warning('An error occurred while running ISR on dataId %s:\n%s', dataId, traceback.format_exc())
 
 
 class IPCTask(IsrTask):
@@ -37,7 +42,7 @@ class IPCTask(IsrTask):
         config.doLinearize = False
         config.doDefect = True
         config.doIPC = True
-        #config.ipcCoeffs = np.array([13e-3, 6e-3])
+        # config.ipcCoeffs = np.array([13e-3, 6e-3])
         config.doSaturationInterpolation = False
         config.validate()
 

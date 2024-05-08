@@ -25,13 +25,11 @@ class DetrendTask(BaseTask):
     def bootstrap(cls, tasksExec, visit=1, arm='b', spectrograph=1):
         """Parse the command-line arguments and run the Task."""
         config = cls.ConfigClass()
-        CALIB = os.path.join(tasksExec.engine.target, tasksExec.engine.CALIB)
-
-        cmdArgs = f"{tasksExec.engine.target} --processes 1 --calib {CALIB} --rerun {tasksExec.engine.rerun} " \
-                  f"--id visit={visit} arm={arm} spectrograph={spectrograph} --clobber-config --no-versions"
-
         parser = cls._makeArgumentParser()
+
+        cmdArgs = tasksExec.engine.makeCmdArgs(visit, arm, spectrograph)
         parsedCmd = parser.parse_args(config, args=cmdArgs.split(' '))
+
         return cls(tasksExec, parsedCmd)
 
     def mergeConfig(self, userConfig):
