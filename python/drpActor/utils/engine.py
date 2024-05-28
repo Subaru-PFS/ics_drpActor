@@ -108,6 +108,12 @@ class DrpEngine(object):
             return
 
         if self.dotRoach is not None:
+            # filtering only selected cams in dotRoach.
+            files = [file for file in files if file.cam in self.dotRoach.cams]
+
+            if not files:
+                return
+
             self.dotRoach.runAway(files)
             self.dotRoach.status(cmd=self.actor.bcast)
 
@@ -185,12 +191,12 @@ class DrpEngine(object):
 
             cmd.inform(f'detrendStatus={visit},{retCode},{statusStr},{0}')
 
-    def startDotRoach(self, dataRoot, maskFile, keepMoving=False):
+    def startDotRoach(self, dataRoot, maskFile, cams, keepMoving=False):
         """Starting dotRoach loop."""
         # Deactivating auto-detrend.
         self.setSettings(doAutoDetrend=False, doAutoReduce=False)
         # instantiating DotRoach object.
-        self.dotRoach = dotRoach.DotRoach(self, dataRoot, maskFile, keepMoving=keepMoving)
+        self.dotRoach = dotRoach.DotRoach(self, dataRoot, maskFile, cams, keepMoving=keepMoving)
 
     def stopDotRoach(self, cmd):
         """Stopping dotRoach loop"""

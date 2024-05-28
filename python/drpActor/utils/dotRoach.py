@@ -15,7 +15,7 @@ class DotRoach(object):
     sgfm = gfm[gfm.cobraId != FiberIds.MISSING_VALUE]
     processTimeout = 15
 
-    def __init__(self, engine, dataRoot, maskFile, keepMoving=False):
+    def __init__(self, engine, dataRoot, maskFile, cams, keepMoving=False):
         """ Placeholder to handle DotRoach loop"""
         self.engine = engine
         self.processManager = multiprocessing.Manager()
@@ -23,6 +23,7 @@ class DotRoach(object):
         self.pathDict = self.initialise(dataRoot)
         self.maskFile = pd.read_csv(maskFile, index_col=0).sort_values('cobraId')
         self.didOvershoot = self.allStoppedMaskFile()
+        self.cams = cams
         self.keepMoving = keepMoving
 
         self.normFactor = None
