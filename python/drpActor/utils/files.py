@@ -37,6 +37,11 @@ class PfsFile(object):
     def dataId(self):
         return dict(visit=self.visit, arm=self.arm, spectrograph=self.specNum)
 
+    @property
+    def cam(self):
+        arm = 'r' if self.arm in 'rm' else self.arm
+        return f'{arm}{self.specNum}'
+
     def initialize(self, butler):
         """Set file to correct state."""
         self.getRawMd(butler)

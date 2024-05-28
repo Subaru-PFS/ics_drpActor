@@ -28,7 +28,7 @@ class DrpCmd(object):
             ('ingest', '<filepath>', self.ingest),
             ('detrend', '<visit> <arm> <spectrograph>', self.detrend),
 
-            ('startDotRoach', '<dataRoot> <maskFile> [@(keepMoving)]', self.startDotRoach),
+            ('startDotRoach', '<dataRoot> <maskFile> <cams> [@(keepMoving)]', self.startDotRoach),
             ('stopDotRoach', '', self.stopDotRoach),
             ('processDotRoach', '<iteration>', self.processDotRoach),
             ('dotRoach', '@phase2', self.dotRoachPhase2),
@@ -51,6 +51,8 @@ class DrpCmd(object):
                                                  help="dataRoot which will contain the generated outputs"),
                                         keys.Key("maskFile", types.String(),
                                                  help="config file describing which cobras will be put behind dots."),
+                                        keys.Key("cams", types.String() * (1,),
+                                                 help='list of camera used for roaching.'),
                                         )
 
     @property
@@ -135,14 +137,16 @@ class DrpCmd(object):
         maskFile = cmdKeys['maskFile'].values[0]
         # keep moving no matter what.
         keepMoving = 'keepMoving' in cmdKeys
+        # which camera are used for roaching.
+        cams = cmdKeys['cams'].values
 
         # lookup for any un-finalized roaching and finish it.
         if os.path.isdir(dataRoot):
             cmd.inform('text="found a DotRoach left-over, finishing it now..."')
-            roach = dotRoach.DotRoach(self.engine, dataRoot, maskFile)
+            roach = dotRoach.DotRoach(self.engine, dataRoot, maskFile, "")
             roach.finish()
 
-        self.engine.startDotRoach(dataRoot=dataRoot, maskFile=maskFile, keepMoving=keepMoving)
+        self.engine.startDotRoach(dataRoot, maskFile, cams, keepMoving=keepMoving)
         cmd.finish('text="starting loop... Run dotRoaches, run ! "')
 
     def processDotRoach(self, cmd):
