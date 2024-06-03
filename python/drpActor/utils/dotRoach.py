@@ -191,7 +191,7 @@ class DotRoach(object):
                 flag = 1
             elif self.strategy == 'phase2' and (gain < 0.05 and fluxRatio[-1] < np.min(ratioInPhase1)):
                 flag = 1
-            elif fluxRatio.min() < 0.5 and gradient > 0:
+            elif fluxRatio[-1] < 0.5 and gradient > 0:
                 flag = 2
             else:
                 flag = 0
