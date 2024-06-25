@@ -1,12 +1,14 @@
 import concurrent.futures
+import logging
 import time
+import traceback
 
 import drpActor.utils.tasks.ingest as ingest
+from drpActor.utils.tasks.detectorMapQa import DetectorMapQaTask
 from drpActor.utils.tasks.detrend import DetrendTask
+from drpActor.utils.tasks.extractionQa import ExtractionQaTask
 from drpActor.utils.tasks.ipc import IPCTask
 from drpActor.utils.tasks.reduceExposure import ReduceExposureTask
-from drpActor.utils.tasks.detectorMapQa import DetectorMapQaTask
-from drpActor.utils.tasks.extractionQa import ExtractionQaTask
 from twisted.internet import reactor
 
 
@@ -61,7 +63,11 @@ class TasksExec:
         file.state = 'processing'
         if file.arm == 'n':
             # always get defects from the main process.
-            self.getCalibs(file.dataId)
+            try:
+                self.getCalibs(file.dataId)
+            except Exception:
+                logging.warning('An error occurred while running ISR on dataId %s:\n%s', file.dataId,
+                                traceback.format_exc())
             self.ipcTask.runFromActor(file)
         else:
             self.detrendTask.runFromActor(file)

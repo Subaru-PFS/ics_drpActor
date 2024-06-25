@@ -12,9 +12,11 @@ class PfsFile(object):
         self.root = root
         self.night = night
         self.filename = filename
-        self.visit = int(filename[4:10])
-        self.specNum = int(filename[10])
-        self.armNum = int(filename[11])
+
+        self.visit = PfsFile.toVisit(filename)
+        self.specNum = PfsFile.toSpecNum(filename)
+        self.armNum = PfsFile.toArmNum(filename)
+
         self.arm = PfsFile.fromArmNum[self.armNum]
 
         self.raw_md = None
@@ -41,6 +43,18 @@ class PfsFile(object):
     def cam(self):
         arm = 'r' if self.arm in 'rm' else self.arm
         return f'{arm}{self.specNum}'
+
+    @staticmethod
+    def toVisit(filename):
+        return int(filename[4:10])
+
+    @staticmethod
+    def toSpecNum(filename):
+        return int(filename[10])
+
+    @staticmethod
+    def toArmNum(filename):
+        return int(filename[11])
 
     def initialize(self, butler):
         """Set file to correct state."""
