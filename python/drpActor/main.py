@@ -51,6 +51,7 @@ class DrpActor(Actor):
                 self.logger.info(f'{hx}.filename callback attached')
 
             self.models['sps'].keyVarDict['fileIds'].addCallback(self.spsFileIds, callNow=False)
+            self.models['sps'].keyVarDict['pfsConfigFinalized'].addCallback(self.pfsConfigFinalized, callNow=False)
             self.models['iic'].keyVarDict['designId'].addCallback(self.newPfsDesign, callNow=False)
 
             self.engine = self.loadDrpEngine()
@@ -96,6 +97,15 @@ class DrpActor(Actor):
             return
 
         reactor.callLater(0.2, self.engine.newVisit, visit)
+
+    def pfsConfigFinalized(self, keyvar):
+        """pfsConfigFinalized callback."""
+        try:
+            [visit, flag] = keyvar.getValue()
+        except ValueError:
+            return
+
+        self.engine.pfsConfigFlag[int(visit)] = bool(flag)
 
     def newPfsDesign(self, keyvar):
         try:

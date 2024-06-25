@@ -1,14 +1,19 @@
 import os
+from functools import partial
 from importlib import reload
 
 import drpActor.utils.dotRoach as dotRoach
 import drpActor.utils.tasks.tasksExec as tasksExec
 import lsst.daf.persistence as dafPersist
+from twisted.internet import reactor
 
 reload(dotRoach)
 
 
 class DrpEngine(object):
+    maxAttempts = 100
+    timeBetweenAttempts = 15
+
     def __init__(self, actor, target, CALIB, rerun, pfsConfigDir, nProcesses, **config):
         self.actor = actor
         self.target = target
@@ -20,6 +25,7 @@ class DrpEngine(object):
         self.config = config
 
         self.fileBuffer = []
+        self.pfsConfigFlag = dict()
         self.dotRoach = None
 
         self.doAutoIngest = False
@@ -76,6 +82,21 @@ class DrpEngine(object):
 
         """
         self.inspect(file)
+        self.process(file)
+
+    def process(self, file, nAttempt=0):
+        """
+        Process the file by checking if the pfsConfig is finalized, ingesting the file if necessary,
+        and then performing detrending and reduction if necessary.
+
+        Parameters:
+        file (PfsFile): The file object to be processed.
+        nAttempt (int): The number of attempts made to process the file.
+       """
+        if not self.checkPfsConfigFlag(file, nAttempt=nAttempt) and not file.ingested:
+            self.logger.warning(f'pfsConfig not finalized yet... Retrying later nAttempt:{nAttempt:d}')
+            reactor.callLater(DrpEngine.timeBetweenAttempts, partial(self.process, file, nAttempt + 1))
+            return
 
         if self.doAutoIngest and not file.ingested:
             self.tasks.ingest(file)
@@ -116,6 +137,14 @@ class DrpEngine(object):
 
             self.dotRoach.runAway(files)
             self.dotRoach.status(cmd=self.actor.bcast)
+
+    def checkPfsConfigFlag(self, file, nAttempt):
+        """Check if pfsConfig has been finalized and ready to be ingested."""
+        pfsConfigFinalized = file.visit in self.pfsConfigFlag.keys()
+        # if you reach the limit just try to ingest anyway.
+        tryIngest = pfsConfigFinalized or nAttempt >= DrpEngine.maxAttempts
+
+        return tryIngest
 
     def genDetrendKey(self, file, cmd=None):
         """Generate detrend key to display image with gingaActor."""
