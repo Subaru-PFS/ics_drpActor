@@ -68,6 +68,7 @@ class TasksExec:
             except Exception:
                 logging.warning('An error occurred while running ISR on dataId %s:\n%s', file.dataId,
                                 traceback.format_exc())
+                return
             self.ipcTask.runFromActor(file)
         else:
             self.detrendTask.runFromActor(file)

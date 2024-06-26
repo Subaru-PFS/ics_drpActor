@@ -1,12 +1,13 @@
+import glob
 import os
 import time
 from importlib import reload
 
 import drpActor.utils.dotRoach as dotRoach
+import drpActor.utils.drpParsing as drpParsing
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 from drpActor.utils.files import CCDFile, HxFile
-from ics.utils.sps.spectroIds import SpectroIds
 
 reload(dotRoach)
 
@@ -25,8 +26,7 @@ class DrpCmd(object):
         self.vocab = [
             ('ping', '', self.ping),
             ('status', '', self.status),
-            ('ingest', '<filepath>', self.ingest),
-            ('detrend', '<visit> <arm> <spectrograph>', self.detrend),
+            ('reduce', '<visit> [<spectrograph>] [<arm>]', self.reduce),
 
             ('startDotRoach', '<dataRoot> <maskFile> <cams> [@(keepMoving)]', self.startDotRoach),
             ('stopDotRoach', '', self.stopDotRoach),
@@ -43,10 +43,16 @@ class DrpCmd(object):
         self.keys = keys.KeysDictionary("drp_drp", (1, 1),
                                         keys.Key("rerun", types.String(), help="rerun drp folder"),
                                         keys.Key("filepath", types.String(), help="Raw FITS File path"),
-                                        keys.Key("arm", types.String(), help="arm"),
                                         keys.Key("iteration", types.Int(), help="dotRoach iteration"),
-                                        keys.Key("visit", types.Int(), help="visitId"),
-                                        keys.Key("spectrograph", types.Int(), help="spectrograph id"),
+                                        keys.Key("visit", types.String(),
+                                                 help="visit argument, same parsing as 2d drp pipeline "
+                                                      "eg visit=1..10 or visit=101^102"),
+                                        keys.Key("spectrograph", types.String(),
+                                                 help="optional spectrograph argument, same parsing as 2d drp pipeline "
+                                                      "eg spectrograph=1^4"),
+                                        keys.Key("arm", types.String(),
+                                                 help="optional arm argument, same parsing as 2d drp pipeline "
+                                                      "eg arm=b^r"),
                                         keys.Key("dataRoot", types.String(),
                                                  help="dataRoot which will contain the generated outputs"),
                                         keys.Key("maskFile", types.String(),
@@ -70,63 +76,47 @@ class DrpCmd(object):
         cmd.inform('text="Present!"')
         cmd.finish()
 
-    def ingest(self, cmd):
+    def reduce(self, cmd):
         """Ingest file providing a filepath."""
         cmdKeys = cmd.cmd.keywords
 
-        filepath = cmdKeys["filepath"].values[0]
-        rootNight, fname = os.path.split(filepath)
+        visits = cmdKeys["visit"].values[0]
+        spectrograph = cmdKeys["spectrograph"].values[0] if 'spectrograph' in cmdKeys else None
+        arms = cmdKeys["arm"].values[0] if 'arm' in cmdKeys else None
 
-        if 'sps' in filepath:
-            File = CCDFile
-            rootNight, __ = os.path.split(rootNight)
-        else:
-            File = HxFile
+        engine = self.actor.loadDrpEngine()
 
-        root, night = os.path.split(rootNight)
+        visitList = drpParsing.makeVisitList(visits)
 
-        file = File(root, night, fname)
-        self.engine.inspect(file)
+        for visit in visitList:
+            pattern = drpParsing.makeVisitPattern(visit, spectrograph=spectrograph, arms=arms)
+            fitsFiles = glob.glob(pattern)
+            for filepath in fitsFiles:
+                cmd.inform(f'text="Processing {filepath}"')
+                rootNightType, fname = os.path.split(filepath)
+                rootNight, fitsType = os.path.split(rootNightType)
+                root, night = os.path.split(rootNight)
+                file = HxFile(rootNight, fitsType, fname) if fitsType == 'ramps' else CCDFile(root, night, fname)
+                engine.newExposure(file, doCheckPfsConfigFlag=False)
 
-        if file.ingested:
-            cmd.finish('text="file already ingested..."')
-            return
+        time.sleep(2)
 
-        self.engine.tasks.ingest(file)
-
-        cmd.finish(f"ingest={filepath}")
-
-    def detrend(self, cmd):
-        """Detrend image providing dataId"""
-        cmdKeys = cmd.cmd.keywords
-
-        visit = cmdKeys["visit"].values[0]
-        spectrograph = cmdKeys["spectrograph"].values[0]
-        arm = cmdKeys["arm"].values[0]
-
-        File = HxFile if arm == 'n' else CCDFile
-
-        fname = f'PF**{visit:06d}{spectrograph}{SpectroIds.validArms[arm]}.fits'
-        root = '/data/raw'
-        night = '2023-*-*/'
-
-        file = File(root, night, fname)
-        self.engine.inspect(file)
-
-        if not file.ingested:
-            cmd.fail('text="file was not ingested..."')
-            return
-
-        self.engine.tasks.detrend(file)
-
-        start = time.time()
-
-        while file.state != 'idle' and file.calexp is None:
-            if (time.time() - start) > 180:
-                raise RuntimeError('could not get detrend image after 180 secs')
+        while not all([file.state == 'idle' for file in engine.fileBuffer]):
             time.sleep(1)
 
-        cmd.finish(f"detrend={file.calexp}")
+        for visit in visitList:
+            sameVisit = [file for file in engine.fileBuffer if file.visit == visit]
+            engine.genIngestStatus(visit, cmd=cmd)
+            for file in sameVisit:
+                engine.inspect(file)
+                file.genAllKeys(cmd)
+
+        engine.fileBuffer = []
+        engine.butler = None
+        engine.tasks = None
+        del engine
+
+        cmd.finish()
 
     def startDotRoach(self, cmd):
         """ Start dot loop. """
