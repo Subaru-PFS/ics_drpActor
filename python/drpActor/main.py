@@ -83,11 +83,11 @@ class DrpActor(Actor):
         except ValueError:
             return
 
-        rootNight, fname = os.path.split(filepath)
-        root, night = os.path.split(rootNight)
+        rootNightType, fname = os.path.split(filepath)
+        rootNight, fitsType = os.path.split(rootNightType)
 
         self.logger.info(f'newfilepath: {filepath} ; threads={threading.active_count()}')
-        self.engine.newExposure(HxFile(root, night, fname))
+        self.engine.newExposure(HxFile(rootNight, fitsType, fname))
 
     def spsFileIds(self, keyvar):
         """ spsFileIds callback. """

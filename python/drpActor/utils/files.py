@@ -1,6 +1,7 @@
 import os
 
 from ics.utils.sps.spectroIds import SpectroIds
+import traceback
 
 
 class PfsFile(object):
@@ -69,8 +70,8 @@ class PfsFile(object):
         if not self.raw_md:
             try:
                 self.raw_md = butler.get('raw_md', **self.dataId)
-            except:
-                pass
+            except Exception as e:
+                print(traceback.format_exc())
 
         return self.raw_md
 
@@ -80,7 +81,7 @@ class PfsFile(object):
             try:
                 self.calexp = butler.getUri('calexp', **self.dataId)
             except Exception as e:
-                print(e)
+                print(traceback.format_exc())
 
         return self.calexp
 
@@ -89,8 +90,8 @@ class PfsFile(object):
         if self.ingested and not self.pfsArm:
             try:
                 self.pfsArm = butler.getUri('pfsArm', **self.dataId)
-            except:
-                pass
+            except Exception as e:
+                print(traceback.format_exc())
 
         return self.pfsArm
 
@@ -99,8 +100,8 @@ class PfsFile(object):
         if self.pfsArm and not self.dmQaResidualImage:
             try:
                 self.dmQaResidualImage = butler.getUri('dmQaResidualImage', **self.dataId)
-            except:
-                pass
+            except Exception as e:
+                print(traceback.format_exc())
 
         return self.dmQaResidualImage
 
@@ -109,10 +110,15 @@ class PfsFile(object):
         if self.pfsArm and not self.extQaStats:
             try:
                 self.extQaStats = butler.getUri('extQaStats', **self.dataId)
-            except:
-                pass
+            except Exception as e:
+                print(traceback.format_exc())
 
         return self.extQaStats
+
+    def genAllKeys(self, cmd):
+        """Gen all keys"""
+        cmd.inform(f"detrend={self.calexp}")
+        cmd.inform(f"pfsArm={self.pfsArm}")
 
 
 class CCDFile(PfsFile):

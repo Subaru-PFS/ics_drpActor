@@ -68,7 +68,7 @@ class DrpEngine(object):
         self.logger.info(f'id={str(file.dataId)} ingested={file.ingested} calexp={file.calexp} pfsArm={file.pfsArm}')
         self.fileBuffer.append(file)
 
-    def newExposure(self, file):
+    def newExposure(self, file, doCheckPfsConfigFlag=True):
         """
         Add new PfsFile into the buffer.
 
@@ -82,9 +82,9 @@ class DrpEngine(object):
 
         """
         self.inspect(file)
-        self.process(file)
+        self.process(file, doCheckPfsConfigFlag=doCheckPfsConfigFlag)
 
-    def process(self, file, nAttempt=0):
+    def process(self, file, nAttempt=0, doCheckPfsConfigFlag=True):
         """
         Process the file by checking if the pfsConfig is finalized, ingesting the file if necessary,
         and then performing detrending and reduction if necessary.
@@ -92,8 +92,8 @@ class DrpEngine(object):
         Parameters:
         file (PfsFile): The file object to be processed.
         nAttempt (int): The number of attempts made to process the file.
-       """
-        if not self.checkPfsConfigFlag(file, nAttempt=nAttempt) and not file.ingested:
+        """
+        if doCheckPfsConfigFlag and not self.checkPfsConfigFlag(file, nAttempt=nAttempt) and not file.ingested:
             self.logger.warning(f'pfsConfig not finalized yet... Retrying later nAttempt:{nAttempt:d}')
             reactor.callLater(DrpEngine.timeBetweenAttempts, partial(self.process, file, nAttempt + 1))
             return
