@@ -99,7 +99,7 @@ class PfsFile(object):
         """Check if detectorMap QA has been produced."""
         if self.pfsArm and not self.dmQaResidualImage:
             try:
-                self.dmQaResidualImage = butler.getUri('dmQaResidualImage', **self.dataId)
+                self.dmQaResidualImage = butler.getUri('dmQaResidualPlot', **self.dataId)
             except Exception as e:
                 print(traceback.format_exc())
 
