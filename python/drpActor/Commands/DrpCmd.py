@@ -13,6 +13,8 @@ reload(dotRoach)
 
 
 class DrpCmd(object):
+    reduceTimeout = 300
+
     def __init__(self, actor):
         # This lets us access the rest of the actor.
         self.actor = actor
@@ -91,6 +93,7 @@ class DrpCmd(object):
         for visit in visitList:
             pattern = drpParsing.makeVisitPattern(visit, spectrograph=spectrograph, arms=arms)
             fitsFiles = glob.glob(pattern)
+            start = time.time()
             for filepath in fitsFiles:
                 cmd.inform(f'text="Processing {filepath}"')
                 rootNightType, fname = os.path.split(filepath)
@@ -99,13 +102,16 @@ class DrpCmd(object):
                 file = HxFile(rootNight, fitsType, fname) if fitsType == 'ramps' else CCDFile(root, night, fname)
                 engine.newExposure(file, doCheckPfsConfigFlag=False)
 
-        time.sleep(2)
+            time.sleep(2)
 
-        while not all([file.state == 'idle' for file in engine.fileBuffer]):
-            time.sleep(1)
-
-        for visit in visitList:
             sameVisit = [file for file in engine.fileBuffer if file.visit == visit]
+
+            while not all([file.state == 'idle' for file in sameVisit]):
+                time.sleep(1)
+
+                if time.time() - start > DrpCmd.reduceTimeout:
+                    raise RuntimeError(f'failed to reduce visits in {DrpCmd.reduceTimeout} seconds')
+
             engine.genIngestStatus(visit, cmd=cmd)
             for file in sameVisit:
                 engine.inspect(file)
