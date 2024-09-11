@@ -99,13 +99,13 @@ class DrpCmd(object):
                 file = HxFile(rootNight, fitsType, fname) if fitsType == 'ramps' else CCDFile(root, night, fname)
                 engine.newExposure(file, doCheckPfsConfigFlag=False)
 
-        time.sleep(2)
+            time.sleep(2)
 
-        while not all([file.state == 'idle' for file in engine.fileBuffer]):
-            time.sleep(1)
-
-        for visit in visitList:
             sameVisit = [file for file in engine.fileBuffer if file.visit == visit]
+
+            while not all([file.state == 'idle' for file in sameVisit]):
+                time.sleep(1)
+
             engine.genIngestStatus(visit, cmd=cmd)
             for file in sameVisit:
                 engine.inspect(file)
