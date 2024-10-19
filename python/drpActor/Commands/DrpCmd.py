@@ -1,13 +1,12 @@
 import glob
 import os
-import time
 from importlib import reload
 
 import drpActor.utils.dotRoach as dotRoach
 import drpActor.utils.drpParsing as drpParsing
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
-from drpActor.utils.files import CCDFile, HxFile
+from drpActor.utils.files import CCDFile, HxFile, PfsConfigFile
 
 reload(dotRoach)
 
@@ -28,16 +27,15 @@ class DrpCmd(object):
         self.vocab = [
             ('ping', '', self.ping),
             ('status', '', self.status),
-            ('reduce', '<visit> [<spectrograph>] [<arm>]', self.reduce),
+
+            ('ingest', '<visit> [<spectrograph>] [<arm>]', self.ingest),
+            ('reduce', '<where>', self.reduce),
 
             ('startDotRoach', '<dataRoot> <maskFile> <cams> [@(keepMoving)]', self.startDotRoach),
             ('stopDotRoach', '', self.stopDotRoach),
             ('processDotRoach', '<iteration>', self.processDotRoach),
             ('dotRoach', '@phase2', self.dotRoachPhase2),
             ('dotRoach', '@phase3', self.dotRoachPhase3),
-
-            ('doReduce', '[@(off|on)]', self.doReduce),
-            ('doDetrend', '[@(off|on)]', self.doDetrend),
 
         ]
 
@@ -61,6 +59,9 @@ class DrpCmd(object):
                                                  help="config file describing which cobras will be put behind dots."),
                                         keys.Key("cams", types.String() * (1,),
                                                  help='list of camera used for roaching.'),
+
+                                        keys.Key("where", types.String(), help="where condition "
+                                                                               "to select the dataset to reduce"),
                                         )
 
     @property
@@ -78,8 +79,8 @@ class DrpCmd(object):
         cmd.inform('text="Present!"')
         cmd.finish()
 
-    def reduce(self, cmd):
-        """Ingest file providing a filepath."""
+    def ingest(self, cmd):
+
         cmdKeys = cmd.cmd.keywords
 
         visits = cmdKeys["visit"].values[0]
@@ -91,36 +92,31 @@ class DrpCmd(object):
         visitList = drpParsing.makeVisitList(visits)
 
         for visit in visitList:
-            pattern = drpParsing.makeVisitPattern(visit, spectrograph=spectrograph, arms=arms)
-            fitsFiles = glob.glob(pattern)
-            start = time.time()
-            for filepath in fitsFiles:
-                cmd.inform(f'text="Processing {filepath}"')
+            pfsConfigPath, pattern = drpParsing.makeVisitPattern(visit, spectrograph=spectrograph, arms=arms)
+
+            pfsConfigFile = PfsConfigFile(visit, filepath=pfsConfigPath)
+            engine.newPfsConfig(pfsConfigFile)
+
+            for filepath in glob.glob(pattern):
                 rootNightType, fname = os.path.split(filepath)
                 rootNight, fitsType = os.path.split(rootNightType)
                 root, night = os.path.split(rootNight)
                 file = HxFile(rootNight, fitsType, fname) if fitsType == 'ramps' else CCDFile(root, night, fname)
-                engine.newExposure(file, doCheckPfsConfigFlag=False)
+                engine.newExposure(file)
 
-            time.sleep(2)
+            pfsVisit = engine.pfsVisits.get(visit)
+            engine.ingestHandler.doIngest(pfsVisit)
 
-            sameVisit = [file for file in engine.fileBuffer if file.visit == visit]
+        cmd.finish()
 
-            while not all([file.state == 'idle' for file in sameVisit]):
-                time.sleep(1)
+    def reduce(self, cmd):
+        """Ingest file providing a filepath."""
+        cmdKeys = cmd.cmd.keywords
 
-                if time.time() - start > DrpCmd.reduceTimeout:
-                    raise RuntimeError(f'failed to reduce visits in {DrpCmd.reduceTimeout} seconds')
+        where = cmdKeys["where"].values[0]
 
-            engine.genIngestStatus(visit, cmd=cmd)
-            for file in sameVisit:
-                engine.inspect(file)
-                file.genAllKeys(cmd)
-
-        engine.fileBuffer = []
-        engine.butler = None
-        engine.tasks = None
-        del engine
+        engine = self.actor.loadDrpEngine()
+        engine.runReductionPipeline(where=where)
 
         cmd.finish()
 

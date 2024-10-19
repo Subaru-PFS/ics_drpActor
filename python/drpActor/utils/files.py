@@ -1,15 +1,76 @@
 import os
 
 from ics.utils.sps.spectroIds import SpectroIds
-import traceback
+
+
+class PfsConfigFile(object):
+    """
+    Represents a PFS configuration file for a specific visit.
+
+    Parameters
+    ----------
+    visit : int
+        The visit identifier associated with the configuration file.
+    filepath : str
+        The path to the pfsConfig file.
+    """
+
+    def __init__(self, visit, filepath=None):
+        self.visit = visit
+        self.filepath = filepath
+        self.ingested = False
+
+    @property
+    def dataId(self):
+        """Return the data ID dictionary used by the Butler."""
+        return dict(exposure=self.visit, instrument="PFS")
+
+    def initialize(self, butler):
+        """
+        Set the state of the file based on its presence in the datastore.
+
+        Parameters
+        ----------
+        butler : lsst.daf.butler.Butler
+            Butler instance to query the datastore.
+
+        Notes
+        -----
+        Sets `self.ingested` to True if the pfsConfig file is found in the datastore.
+        """
+        self.ingested = len(list(butler.registry.queryDatasets("pfsConfig", **self.dataId))) == 1
 
 
 class PfsFile(object):
-    """ just a place holder for ccd file"""
+    """
+    Placeholder class representing a raw CCD file from the PFS instrument.
+
+    Parameters
+    ----------
+    root : str
+        The root directory of the data files.
+    night : str
+        The observing night associated with the file.
+    filename : str
+        The name of the raw data file.
+
+    Attributes
+    ----------
+    visit : int
+        The visit ID extracted from the filename.
+    specNum : int
+        The spectrograph number extracted from the filename.
+    armNum : int
+        The arm number (channel) extracted from the filename.
+    arm : str
+        The arm/channel identifier (e.g., 'b', 'r', 'm').
+    ingested : bool
+        Indicates whether the file has been ingested into the datastore.
+    """
+
     fromArmNum = dict([(v, k) for k, v in SpectroIds.validArms.items()])
 
     def __init__(self, root, night, filename):
-
         self.root = root
         self.night = night
         self.filename = filename
@@ -19,116 +80,84 @@ class PfsFile(object):
         self.armNum = PfsFile.toArmNum(filename)
 
         self.arm = PfsFile.fromArmNum[self.armNum]
-
-        self.raw_md = None
-        self.calexp = None
-        self.pfsArm = None
-        self.dmQaResidualImage = None
-        self.extQaStats = None
-
-        self.state = 'idle'
-
-    @property
-    def ingested(self):
-        return self.raw_md is not None
+        self.ingested = False
 
     @property
     def filepath(self):
+        """Return the full path to the file."""
         return os.path.join(self.root, self.night, self.filename)
 
     @property
     def dataId(self):
-        return dict(visit=self.visit, arm=self.arm, spectrograph=self.specNum)
+        """Return the data ID dictionary used by the Butler."""
+        return dict(exposure=self.visit, arm=self.arm, spectrograph=self.specNum)
 
     @property
     def cam(self):
+        """Return the camera identifier (e.g., 'r1', 'b2')."""
         arm = 'r' if self.arm in 'rm' else self.arm
         return f'{arm}{self.specNum}'
 
     @staticmethod
     def toVisit(filename):
+        """Extract the visit ID from the filename."""
         return int(filename[4:10])
 
     @staticmethod
     def toSpecNum(filename):
+        """Extract the spectrograph number from the filename."""
         return int(filename[10])
 
     @staticmethod
     def toArmNum(filename):
+        """Extract the arm number from the filename."""
         return int(filename[11])
 
     def initialize(self, butler):
-        """Set file to correct state."""
-        self.getRawMd(butler)
-        self.getCalexp(butler)
-        self.getPfsArm(butler)
-        self.getDmQaResidualImage(butler)
-        self.getExtQaStats(butler)
+        """
+        Set the ingestion state of the file based on its presence in the datastore.
 
-    def getRawMd(self, butler):
-        """Check is file has been ingested, setting state machine."""
-        if not self.raw_md:
-            try:
-                self.raw_md = butler.get('raw_md', **self.dataId)
-            except Exception as e:
-                print(traceback.format_exc())
+        Parameters
+        ----------
+        butler : lsst.daf.butler.Butler
+            Butler instance to query the datastore.
 
-        return self.raw_md
-
-    def getCalexp(self, butler):
-        """Check is calexp has been produced."""
-        if self.ingested and not self.calexp:
-            try:
-                self.calexp = butler.getUri('calexp', **self.dataId)
-            except Exception as e:
-                print(traceback.format_exc())
-
-        return self.calexp
-
-    def getPfsArm(self, butler):
-        """Check if armFile has been produced."""
-        if self.ingested and not self.pfsArm:
-            try:
-                self.pfsArm = butler.getUri('pfsArm', **self.dataId)
-            except Exception as e:
-                print(traceback.format_exc())
-
-        return self.pfsArm
-
-    def getDmQaResidualImage(self, butler):
-        """Check if detectorMap QA has been produced."""
-        if self.pfsArm and not self.dmQaResidualImage:
-            try:
-                self.dmQaResidualImage = butler.getUri('dmQaResidualPlot', **self.dataId)
-            except Exception as e:
-                print(traceback.format_exc())
-
-        return self.dmQaResidualImage
-
-    def getExtQaStats(self, butler):
-        """Check if detectorMap QA has been produced."""
-        if self.pfsArm and not self.extQaStats:
-            try:
-                self.extQaStats = butler.getUri('extQaStats', **self.dataId)
-            except Exception as e:
-                print(traceback.format_exc())
-
-        return self.extQaStats
-
-    def genAllKeys(self, cmd):
-        """Gen all keys"""
-        cmd.inform(f"detrend={self.calexp}")
-        cmd.inform(f"pfsArm={self.pfsArm}")
+        Notes
+        -----
+        Sets `self.ingested` to True if the raw file is found in the datastore.
+        """
+        self.ingested = len(list(butler.registry.queryDatasets("raw", instrument="PFS", **self.dataId))) == 1
 
 
 class CCDFile(PfsFile):
+    """
+    Specialized class representing a CCD file from the PFS instrument.
+
+    Inherits from `PfsFile` and adds specific attributes related to CCD data.
+
+    Attributes
+    ----------
+    filepath : str
+        Overrides the parent `filepath` to point to the correct subdirectory.
+    windowed : bool
+        Indicates whether the CCD data is windowed based on metadata.
+    """
 
     @property
     def filepath(self):
+        """Return the full path to the CCD file within the 'sps' directory."""
         return os.path.join(self.root, self.night, 'sps', self.filename)
 
     @property
     def windowed(self):
+        """
+        Determine if the CCD data is windowed.
+
+        Returns
+        -------
+        bool
+            True if the data is windowed, False otherwise.
+        """
         try:
             nRows = self.raw_md['W_CDROWN'] + 1 - self.raw_md['W_CDROW0']
             return nRows != 4300
@@ -137,6 +166,20 @@ class CCDFile(PfsFile):
 
 
 class HxFile(PfsFile):
+    """
+    Specialized class representing h4 file from the PFS instrument.
+
+    Inherits from `PfsFile` and provides specific attributes for Hx data.
+    """
+
     @property
     def windowed(self):
+        """
+        Determine if the Hx data is windowed.
+
+        Returns
+        -------
+        bool
+            Always returns False since Hx data is not windowed.
+        """
         return False

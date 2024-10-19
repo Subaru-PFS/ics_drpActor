@@ -1,289 +1,236 @@
+import datetime
 import os
-from functools import partial
 from importlib import reload
 
 import drpActor.utils.dotRoach as dotRoach
-import drpActor.utils.tasks.tasksExec as tasksExec
-import lsst.daf.persistence as dafPersist
-from twisted.internet import reactor
 
 reload(dotRoach)
 
+from lsst.daf.butler import Butler
+from drpActor.utils.pfsVisit import PfsVisit
+from drpActor.utils.tasks.ingest import IngestHandler
+from lsst.ctrl.mpexec import SeparablePipelineExecutor
+from lsst.pipe.base import Pipeline, ExecutionResources
 
-class DrpEngine(object):
-    maxAttempts = 100
-    timeBetweenAttempts = 15
 
-    def __init__(self, actor, target, CALIB, rerun, pfsConfigDir, nProcesses, **config):
-        self.actor = actor
-        self.target = target
-        self.CALIB = CALIB
-        self.rerun = rerun
-        self.pfsConfigDir = pfsConfigDir
-        self.nProcesses = nProcesses
+class DrpEngine:
+    """
+    Engine responsible for data reduction, ingestion, and configuration management for PFS.
 
-        self.config = config
+    This class manages raw data ingestion, reduction pipelines, and configurations
+    for the Prime Focus Spectrograph (PFS) instrument.
 
-        self.fileBuffer = []
-        self.pfsConfigFlag = dict()
-        self.dotRoach = None
+    Parameters
+    ----------
+    actor : object
+        Actor instance responsible for logging and configuration management.
+    datastore : str
+        Path to the datastore where input/output collections are stored.
+    rawRun : str
+        Identifier for the raw data run.
+    pfsConfigRun : str
+        Identifier for the PFS configuration run.
+    ingestMode : str
+        Mode for ingestion (e.g., automatic or manual).
+    inputCollection : str
+        Name of the input collection used for reduction.
+    outputCollection : str
+        Name of the output collection where results will be stored.
+    pipelineYaml : str
+        Path to the YAML configuration file for the reduction pipeline.
+    nCores : int
+        Number of cores allocated for parallel processing.
+    **config : dict
+        Additional configuration parameters for the engine.
+    """
 
-        self.doAutoIngest = False
-        self.doAutoDetrend = False
-        self.doAutoReduce = False
-        self.doDetectorMapQa = False
-        self.doExtractionQa = False
+    # Configuration parameters for retries if issues arise during processing
+    maxAttempts = 100  # Maximum retry attempts
+    timeBetweenAttempts = 15  # Time (in seconds) between retries
 
-        # default setting from config file.
-        self.setSettings()
-        self.butler = self.loadButler()
-        self.tasks = tasksExec.TasksExec(self)
+    def __init__(self, actor, datastore, rawRun, pfsConfigRun, ingestMode,
+                 inputCollection, outputCollection, pipelineYaml, nCores, **config):
+        """Initialize the DrpEngine with actor, datastore, collections, and settings."""
+        self.actor = actor  # Reference to the actor for logging and configuration
+        self.datastore = datastore  # Path to the data storage location
+        self.rawRun = rawRun  # Run ID for raw data
+        self.pfsConfigRun = pfsConfigRun  # Run ID for PFS configuration data
+        self.ingestMode = ingestMode  # Ingestion mode (automatic or manual)
+        self.inputCollection = inputCollection  # Name of the input collection
+        self.outputCollection = outputCollection  # Name of the output collection
+        self.nCores = nCores  # Number of CPU cores to allocate
+        self.config = config  # Additional configuration parameters
+        self.pfsVisits = {}  # Dictionary to store visits and their exposures
+        self.rawButler = None  # Butler instance for raw data handling
+
+        # Enable auto-ingest and auto-reduction by default
+        self.doAutoIngest = True
+        self.doAutoReduce = True
+
+        # Initialize Butler instances and handlers
+        self.rawButler = self.loadButler(self.rawRun)
+        self.pfsConfigButler = self.loadButler(self.pfsConfigRun)
+        self.ingestHandler = IngestHandler(self)
+        self.reducePipeline, self.reduceButler, self.executor = self.setupReducePipeline(datastore,
+                                                                                         inputCollection,
+                                                                                         outputCollection,
+                                                                                         pipelineYaml,
+                                                                                         nCores )
 
     @property
     def logger(self):
+        """Retrieve the logger instance from the actor."""
         return self.actor.logger
-
-    @property
-    def settings(self):
-        return self.config['settings']
 
     @classmethod
     def fromConfigFile(cls, actor):
+        """
+        Create a DrpEngine instance from the actor's configuration file.
+
+        Parameters
+        ----------
+        actor : object
+            The actor instance with access to the configuration file.
+
+        Returns
+        -------
+        DrpEngine
+            A configured instance of the DrpEngine class.
+        """
         return cls(actor, **actor.actorConfig[actor.site])
 
-    def loadButler(self):
-        """Load butler."""
+    def loadButler(self, run):
+        """
+        Initialize a Butler instance for a specific run.
+
+        Parameters
+        ----------
+        run : str
+            The run identifier to initialize the Butler.
+
+        Returns
+        -------
+        Butler or None
+            The initialized Butler instance or None if initialization fails.
+        """
         try:
-            butler = dafPersist.Butler(os.path.join(self.target, 'rerun', self.rerun))
+            return Butler(self.datastore, run=run)
         except Exception as e:
-            self.logger.warning('text=%s' % self.actor.strTraceback(e))
-            self.logger.warning('butler could not be instantiated, might be a fresh one')
-            butler = None
+            self.logger.warning('Failed to load Butler: %s', self.actor.strTraceback(e))
+            return None
 
-        return butler
-
-    def inspect(self, file):
-        """Assessing what has been done on this file/dataId."""
-        file.initialize(self.butler)
-        self.logger.info(f'id={str(file.dataId)} ingested={file.ingested} calexp={file.calexp} pfsArm={file.pfsArm}')
-        self.fileBuffer.append(file)
-
-    def newExposure(self, file, doCheckPfsConfigFlag=True):
+    def setupReducePipeline(self, datastore, inputCollection, outputCollection, pipelineYaml, nCores):
         """
-        Add new PfsFile into the buffer.
+        Set up the reduction pipeline and its executor.
 
-        This function inspects the file, ingests it if it's not already ingested and doAutoIngest is True,
-        and then performs detrending and reduction if doAutoDetrend and doAutoReduce are True, respectively.
-        If the file has a calexp, a detrend key is generated. If the file has a pfsArm, a pfsArm key is generated.
-        All tasks are run in parallel, except for the ingest task which is run in the same thread.
+        Parameters
+        ----------
+        datastore : str
+            Path to the datastore.
+        inputCollection : str
+            Name of the input collection.
+        outputCollection : str
+            Name of the output collection.
+        pipelineYaml : str
+            Path to the YAML file defining the reduction pipeline.
+        nCores : int
+            Number of cores for parallel processing.
 
-        Parameters:
-        file (drpActor.utils.files.PfsFile): The file object to be added into the buffer.
-
+        Returns
+        -------
+        tuple
+            A tuple containing the pipeline, Butler instance, and executor.
         """
-        self.inspect(file)
-        self.process(file, doCheckPfsConfigFlag=doCheckPfsConfigFlag)
+        # Load the reduction pipeline from YAML
+        pipeline = Pipeline.fromFile(os.path.join(os.getenv("PFS_INSTDATA_DIR"), 'config', pipelineYaml))
 
-    def process(self, file, nAttempt=0, doCheckPfsConfigFlag=True):
+        # Append a timestamp to the output collection name
+        timestamp = datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+        outputCollection = os.path.join(outputCollection, timestamp)
+
+        # Initialize the Butler with the input and output collections
+        butler = Butler(datastore, collections=[inputCollection], run=outputCollection)
+
+        # Set up the pipeline executor for parallel processing
+        executor = SeparablePipelineExecutor(butler=butler, clobber_output=True,
+                                             resources=ExecutionResources(num_cores=nCores))
+
+        return pipeline, butler, executor
+
+    def newPfsConfig(self, pfsConfigFile):
         """
-        Process the file by checking if the pfsConfig is finalized, ingesting the file if necessary,
-        and then performing detrending and reduction if necessary.
+        Register a new PFS configuration file for a visit.
 
-        Parameters:
-        file (PfsFile): The file object to be processed.
-        nAttempt (int): The number of attempts made to process the file.
+        Parameters
+        ----------
+        pfsConfigFile : object
+            The PFS configuration file to be registered.
         """
-        if doCheckPfsConfigFlag and not self.checkPfsConfigFlag(file, nAttempt=nAttempt) and not file.ingested:
-            self.logger.warning(f'pfsConfig not finalized yet... Retrying later nAttempt:{nAttempt:d}')
-            reactor.callLater(DrpEngine.timeBetweenAttempts, partial(self.process, file, nAttempt + 1))
-            return
+        self.logger.info(f'New pfsConfig available: {pfsConfigFile.filepath}')
+        pfsConfigFile.initialize(self.pfsConfigButler)
 
-        if self.doAutoIngest and not file.ingested:
-            self.tasks.ingest(file)
+        self.pfsVisits[pfsConfigFile.visit] = PfsVisit(pfsConfigFile.visit, pfsConfigFile=pfsConfigFile)
 
-        if not file.ingested:
-            self.logger.warning(f'id={str(file.dataId)} failed to be ingested...')
-            return
+    def newExposure(self, exposureFile):
+        """
+        Add a new exposure file to the corresponding visit.
 
-        # Ingest is made is the same thread, but from this point tasks are run in parallel.
-        if self.doAutoDetrend:
-            if file.calexp:
-                self.genDetrendKey(file)
-            else:
-                self.tasks.detrend(file)
+        Parameters
+        ----------
+        exposureFile : object
+            The exposure file to be added to a visit.
+        """
+        self.logger.info(f'New exposure available: {exposureFile.filepath}')
+        exposureFile.initialize(self.rawButler)
 
-        if self.doAutoReduce:
-            if file.pfsArm:
-                self.genPfsArmKey(file)
-            else:
-                self.tasks.reduceExposure(file)
+        if exposureFile.visit not in self.pfsVisits:
+            self.logger.warning(f'No pfsVisit found for visit {exposureFile.visit}')
+            self.pfsVisits[exposureFile.visit] = PfsVisit(exposureFile.visit)
+
+        self.pfsVisits[exposureFile.visit].addExposure(exposureFile)
 
     def newVisit(self, visit):
-        """New sps visit callback."""
-        # generate ingest status first
-        self.genIngestStatus(visit)
-
-        # get exposure with same visit
-        files = [file for file in self.fileBuffer if file.visit == visit]
-        if not files:
-            return
-
-        if self.dotRoach is not None:
-            # filtering only selected cams in dotRoach.
-            files = [file for file in files if file.cam in self.dotRoach.cams]
-
-            if not files:
-                return
-
-            self.dotRoach.runAway(files)
-            self.dotRoach.status(cmd=self.actor.bcast)
-
-    def checkPfsConfigFlag(self, file, nAttempt):
-        """Check if pfsConfig has been finalized and ready to be ingested."""
-        pfsConfigFinalized = file.visit in self.pfsConfigFlag.keys()
-        # if you reach the limit just try to ingest anyway.
-        tryIngest = pfsConfigFinalized or nAttempt >= DrpEngine.maxAttempts
-
-        return tryIngest
-
-    def genDetrendKey(self, file, cmd=None):
-        """Generate detrend key to display image with gingaActor."""
-        cmd = self.actor.bcast if cmd is None else cmd
-
-        if file.calexp:
-            cmd.inform(f"detrend={file.calexp}")
-
-        self.genDetrendStatus(file.visit, cmd=cmd)
-
-    def genPfsArmKey(self, file, cmd=None):
-        """Generate pfsArm key and fire QA task."""
-        cmd = self.actor.bcast if cmd is None else cmd
-
-        if file.pfsArm:
-            cmd.inform(f"pfsArm={file.pfsArm}")
-
-            self.fireQaTasks(file, cmd=cmd)
-
-    def fireQaTasks(self, file, cmd):
-        """ Perform QA tasks for a given file."""
-        # Perform detectorMapQa if the option is activated.
-        if self.doDetectorMapQa:
-            if not file.dmQaResidualImage:
-                self.logger.info(f'firing detectorMap QA for {str(file.dataId)}')
-                self.tasks.doDetectorMapQa(file)
-            else:
-                self.genDetectorMapQaKey(file, cmd=cmd)
-
-        # Perform extractionQa if the option is activated.
-        if self.doExtractionQa:
-            if not file.extQaStats:
-                self.logger.info(f'firing extraction QA for {str(file.dataId)}')
-                self.tasks.doExtractionQa(file)
-            else:
-                self.genExtractionQaKey(file, cmd=cmd)
-
-    def genDetectorMapQaKey(self, file, cmd=None):
-        """Generate genDetectorMapQa key."""
-        cmd = self.actor.bcast if cmd is None else cmd
-
-        if file.dmQaResidualImage:
-            cmd.inform(f"dmQaResidualImage={file.dmQaResidualImage}")
-
-    def genExtractionQaKey(self, file, cmd=None):
-        """Generate genDetectorMapQa key."""
-        cmd = self.actor.bcast if cmd is None else cmd
-
-        if file.extQaStats:
-            cmd.inform(f"extQaStats={file.extQaStats}")
-
-    def genIngestStatus(self, visit, cmd=None):
-        """Generate ingestStatus key."""
-        cmd = self.actor.bcast if cmd is None else cmd
-
-        ingested = [file.ingested for file in self.fileBuffer if file.visit == visit]
-        statusStr = 'OK' if all(ingested) else 'FAILED'
-        retCode = 0 if all(ingested) else -1
-
-        cmd.inform(f'ingestStatus={visit},{retCode},{statusStr},{0}')
-
-    def genDetrendStatus(self, visit, cmd=None):
-        """Generate detrendStatus key."""
-        cmd = self.actor.bcast if cmd is None else cmd
-
-        sameVisit = [file for file in self.fileBuffer if file.visit == visit]
-        idle = [file.state == 'idle' for file in sameVisit]
-
-        if all(idle):
-            calexp = [file.calexp for file in sameVisit]
-            statusStr = 'OK' if all(calexp) else 'FAILED'
-            retCode = 0 if all(calexp) else -1
-
-            cmd.inform(f'detrendStatus={visit},{retCode},{statusStr},{0}')
-
-    def startDotRoach(self, dataRoot, maskFile, cams, keepMoving=False):
-        """Starting dotRoach loop."""
-        # Deactivating auto-detrend.
-        self.setSettings(doAutoDetrend=False, doAutoReduce=False)
-        # instantiating DotRoach object.
-        self.dotRoach = dotRoach.DotRoach(self, dataRoot, maskFile, cams, keepMoving=keepMoving)
-
-    def stopDotRoach(self, cmd):
-        """Stopping dotRoach loop"""
-        # setting by default.
-        self.setSettings()
-
-        if not self.dotRoach:
-            cmd.warn('text="no dotRoach loop on-going."')
-            return
-
-        cmd.inform('text="ending dotRoach loop"')
-        self.dotRoach.finish()
-        self.dotRoach = None
-
-    def setSettings(self, doAutoIngest=None, doAutoDetrend=None, doAutoReduce=None,
-                    doDetectorMapQa=None, doExtractionQa=None):
-        """Setting engine parameters."""
-        doAutoIngest = self.settings['doAutoIngest'] if doAutoIngest is None else doAutoIngest
-        doAutoDetrend = self.settings['doAutoDetrend'] if doAutoDetrend is None else doAutoDetrend
-        doAutoReduce = self.settings['doAutoReduce'] if doAutoReduce is None else doAutoReduce
-        doDetectorMapQa = self.settings['doDetectorMapQa'] if doDetectorMapQa is None else doDetectorMapQa
-        doExtractionQa = self.settings['doExtractionQa'] if doExtractionQa is None else doExtractionQa
-
-        self.doAutoIngest = doAutoIngest
-        self.doAutoDetrend = doAutoDetrend
-        self.doAutoReduce = doAutoReduce
-        self.doDetectorMapQa = doDetectorMapQa
-        self.doExtractionQa = doExtractionQa
-
-    def makeCmdArgs(self, visit, arm, spectrograph):
         """
-        Create a command line argument string for processing a single visit, arm, and spectrograph.
+        Process a new visit by ingesting exposures and configurations.
 
-        Parameters:
-        visit (int): The visit number.
-        arm (str): The arm (e.g. 'b' for the blue arm).
-        spectrograph (int): The spectrograph number.
-
-        Returns:
-        str: The command line argument string.
+        Parameters
+        ----------
+        visit : int
+            Identifier for the visit to be processed.
         """
-        CALIB = os.path.join(self.target, self.CALIB)
+        pfsVisit = self.pfsVisits.get(visit)
 
-        cmdArgs = f"{self.target} --processes 1 --calib {CALIB} --rerun {self.rerun} " \
-                  f"--id visit={visit} arm={arm} spectrograph={spectrograph} --clobber-config --no-versions"
-        return cmdArgs
-
-    def newPfsDesign(self, designId):
-        """New PfsDesign has been declared, copy it to the repo if new."""
-        if not self.settings['doCopyDesignToPfsConfigDir']:
+        if not pfsVisit:
+            self.logger.warning(f'No pfsVisit found for visit {visit}')
             return
-    #
-    #     fileName = f'pfsDesign-0x{designId:016x}.fits'
-    #
-    #     if not os.path.isfile(os.path.join(self.pfsConfigDir, fileName)):
-    #         designPath = os.path.join('/data/pfsDesign', fileName)
-    #         try:
-    #             shutil.copy(designPath, self.pfsConfigDir)
-    #             self.logger.info(f'{fileName} copied {self.pfsConfigDir} successfully !')
-    #         except Exception as e:
-    #             self.logger.warning(f'failed to copy from {designPath} to {self.pfsConfigDir} with {e}')
+
+        self.processPfsVisit(pfsVisit)
+
+    def processPfsVisit(self, pfsVisit):
+        """
+        Ingest and reduce data for a PFS visit.
+
+        Parameters
+        ----------
+        pfsVisit : PfsVisit
+            The visit object containing exposures and configurations.
+        """
+        if self.doAutoIngest:
+            self.ingestHandler.doIngest(pfsVisit)
+
+        if self.doAutoReduce and pfsVisit.isIngested:
+            self.runReductionPipeline(where=f"exposure={pfsVisit.visit}")
+
+    def runReductionPipeline(self, where):
+        """
+        Execute the reduction pipeline for a given visit.
+
+        Parameters
+        ----------
+        where : str
+            Query to filter the data for the specific visit.
+        """
+        quantumGraph = self.executor.make_quantum_graph(pipeline=self.reducePipeline, where=where)
+
+        self.executor.pre_execute_qgraph(quantumGraph)
+        self.executor.run_pipeline(graph=quantumGraph)

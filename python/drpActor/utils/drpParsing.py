@@ -74,4 +74,4 @@ def makeVisitPattern(visit, spectrograph=None, arms=None):
     specNumPattern = makeSpecNumPattern(spectrograph)
     armNumPattern = makeArmNumPattern(arms)
 
-    return f'{rootDir}/*/PFS*{visit:06d}{specNumPattern}{armNumPattern}.fits'
+    return pfsConfigPath, f'{rootDir}/*/PFS*{visit:06d}{specNumPattern}{armNumPattern}.fits'

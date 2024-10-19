@@ -9,7 +9,7 @@ from importlib import reload
 
 import drpActor.utils.engine as drpEngine
 from actorcore.Actor import Actor
-from drpActor.utils.files import CCDFile, HxFile
+from drpActor.utils.files import CCDFile, HxFile, PfsConfigFile
 from ics.utils.sps.spectroIds import getSite
 from twisted.internet import reactor
 
@@ -51,8 +51,7 @@ class DrpActor(Actor):
                 self.logger.info(f'{hx}.filename callback attached')
 
             self.models['sps'].keyVarDict['fileIds'].addCallback(self.spsFileIds, callNow=False)
-            self.models['sps'].keyVarDict['pfsConfigFinalized'].addCallback(self.pfsConfigFinalized, callNow=False)
-            self.models['iic'].keyVarDict['designId'].addCallback(self.newPfsDesign, callNow=False)
+            self.models['sps'].keyVarDict['ingestPfsConfig'].addCallback(self.newPfsConfig, callNow=False)
 
             self.engine = self.loadDrpEngine()
             self.everConnected = True
@@ -73,7 +72,6 @@ class DrpActor(Actor):
         except ValueError:
             return
 
-        self.logger.info(f'newfilepath: {root}, {night}, {fname} ; threads={threading.active_count()}')
         self.engine.newExposure(CCDFile(root, night, fname))
 
     def hxFilepath(self, keyvar):
@@ -86,7 +84,6 @@ class DrpActor(Actor):
         rootNightType, fname = os.path.split(filepath)
         rootNight, fitsType = os.path.split(rootNightType)
 
-        self.logger.info(f'newfilepath: {filepath} ; threads={threading.active_count()}')
         self.engine.newExposure(HxFile(rootNight, fitsType, fname))
 
     def spsFileIds(self, keyvar):
@@ -98,30 +95,14 @@ class DrpActor(Actor):
 
         reactor.callLater(0.2, self.engine.newVisit, visit)
 
-    def pfsConfigFinalized(self, keyvar):
+    def newPfsConfig(self, keyvar):
         """pfsConfigFinalized callback."""
         try:
-            [visit, flag] = keyvar.getValue()
+            [visit, pfsConfigPath] = keyvar.getValue()
         except ValueError:
             return
 
-        self.engine.pfsConfigFlag[int(visit)] = bool(flag)
-
-    def newPfsDesign(self, keyvar):
-        try:
-            designId = keyvar.getValue()
-        except ValueError:
-            return
-
-        self.engine.newPfsDesign(designId)
-
-    def cleanLogHandlers(self):
-        """Drp argument parser add some unwanted handlers, get rid of those."""
-        logger = logging.getLogger()
-
-        while len(logger.handlers) > DrpActor.nHandlers:
-            logger.debug(f'removing logger handler : {logger.handlers[DrpActor.nHandlers]}')
-            logger.removeHandler(logger.handlers[DrpActor.nHandlers])
+        self.engine.newPfsConfig(PfsConfigFile(visit, pfsConfigPath))
 
 
 def main():
