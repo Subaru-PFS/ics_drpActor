@@ -1,13 +1,13 @@
 import glob
 import os
-import time
 from importlib import reload
 
 import drpActor.utils.dotRoach as dotRoach
 import drpActor.utils.drpParsing as drpParsing
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
-from drpActor.utils.files import CCDFile, HxFile
+from drpActor.utils.files import CCDFile, HxFile, PfsConfigFile
+from drpActor.utils.pfsVisit import PfsVisit
 
 reload(dotRoach)
 
@@ -28,7 +28,7 @@ class DrpCmd(object):
         self.vocab = [
             ('ping', '', self.ping),
             ('status', '', self.status),
-            ('reduce', '<visit> [<spectrograph>] [<arm>]', self.reduce),
+            ('reduce', '<where>', self.reduce),
 
             ('startDotRoach', '<dataRoot> <maskFile> <cams> [@(keepMoving)]', self.startDotRoach),
             ('stopDotRoach', '', self.stopDotRoach),
@@ -61,6 +61,9 @@ class DrpCmd(object):
                                                  help="config file describing which cobras will be put behind dots."),
                                         keys.Key("cams", types.String() * (1,),
                                                  help='list of camera used for roaching.'),
+
+                                        keys.Key("where", types.String(), help="where condition "
+                                                                               "to select the dataset to reduce"),
                                         )
 
     @property
@@ -82,45 +85,10 @@ class DrpCmd(object):
         """Ingest file providing a filepath."""
         cmdKeys = cmd.cmd.keywords
 
-        visits = cmdKeys["visit"].values[0]
-        spectrograph = cmdKeys["spectrograph"].values[0] if 'spectrograph' in cmdKeys else None
-        arms = cmdKeys["arm"].values[0] if 'arm' in cmdKeys else None
+        where = cmdKeys["where"].values[0]
 
         engine = self.actor.loadDrpEngine()
-
-        visitList = drpParsing.makeVisitList(visits)
-
-        for visit in visitList:
-            pattern = drpParsing.makeVisitPattern(visit, spectrograph=spectrograph, arms=arms)
-            fitsFiles = glob.glob(pattern)
-            start = time.time()
-            for filepath in fitsFiles:
-                cmd.inform(f'text="Processing {filepath}"')
-                rootNightType, fname = os.path.split(filepath)
-                rootNight, fitsType = os.path.split(rootNightType)
-                root, night = os.path.split(rootNight)
-                file = HxFile(rootNight, fitsType, fname) if fitsType == 'ramps' else CCDFile(root, night, fname)
-                engine.newExposure(file, doCheckPfsConfigFlag=False)
-
-            time.sleep(2)
-
-            sameVisit = [file for file in engine.fileBuffer if file.visit == visit]
-
-            while not all([file.state == 'idle' for file in sameVisit]):
-                time.sleep(1)
-
-                if time.time() - start > DrpCmd.reduceTimeout:
-                    raise RuntimeError(f'failed to reduce visits in {DrpCmd.reduceTimeout} seconds')
-
-            engine.genIngestStatus(visit, cmd=cmd)
-            for file in sameVisit:
-                engine.inspect(file)
-                file.genAllKeys(cmd)
-
-        engine.fileBuffer = []
-        engine.butler = None
-        engine.tasks = None
-        del engine
+        engine.runReductionPipeline(where=where)
 
         cmd.finish()
 

@@ -9,7 +9,7 @@ from importlib import reload
 
 import drpActor.utils.engine as drpEngine
 from actorcore.Actor import Actor
-from drpActor.utils.files import CCDFile, HxFile
+from drpActor.utils.files import CCDFile, HxFile, PfsConfigFile
 from ics.utils.sps.spectroIds import getSite
 from twisted.internet import reactor
 
@@ -51,7 +51,7 @@ class DrpActor(Actor):
                 self.logger.info(f'{hx}.filename callback attached')
 
             self.models['sps'].keyVarDict['fileIds'].addCallback(self.spsFileIds, callNow=False)
-            self.models['sps'].keyVarDict['ingestPfsConfig'].addCallback(self.ingestPfsConfig, callNow=False)
+            self.models['sps'].keyVarDict['ingestPfsConfig'].addCallback(self.newPfsConfig, callNow=False)
 
             self.engine = self.loadDrpEngine()
             self.everConnected = True
@@ -72,7 +72,6 @@ class DrpActor(Actor):
         except ValueError:
             return
 
-        self.logger.info(f'newfilepath: {root}, {night}, {fname} ; threads={threading.active_count()}')
         self.engine.newExposure(CCDFile(root, night, fname))
 
     def hxFilepath(self, keyvar):
@@ -85,7 +84,6 @@ class DrpActor(Actor):
         rootNightType, fname = os.path.split(filepath)
         rootNight, fitsType = os.path.split(rootNightType)
 
-        self.logger.info(f'newfilepath: {filepath} ; threads={threading.active_count()}')
         self.engine.newExposure(HxFile(rootNight, fitsType, fname))
 
     def spsFileIds(self, keyvar):
@@ -97,14 +95,14 @@ class DrpActor(Actor):
 
         reactor.callLater(0.2, self.engine.newVisit, visit)
 
-    def ingestPfsConfig(self, keyvar):
+    def newPfsConfig(self, keyvar):
         """pfsConfigFinalized callback."""
         try:
             [visit, pfsConfigPath] = keyvar.getValue()
         except ValueError:
             return
 
-        print(pfsConfigPath)
+        self.engine.newPfsConfig(PfsConfigFile(visit, pfsConfigPath))
 
 
 def main():
