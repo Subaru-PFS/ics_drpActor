@@ -3,7 +3,7 @@ import time
 from lsst.obs.base.ingest import RawIngestConfig
 from lsst.obs.pfs.gen3 import PfsRawIngestTask
 from pfs.drp.stella.gen3 import ingestPfsConfig
-
+import logging
 
 class IngestHandler(object):
     """
@@ -37,6 +37,12 @@ class IngestHandler(object):
         if pfsVisit.pfsConfigFile.filepath is None:
             self.engine.logger.warning(f'no filepath for pfsConfig with visit={pfsVisit.visit}')
             return
+
+        logger = logging.getLogger("pfs.ingestPfsConfig")
+
+        # Clear existing handlers to prevent duplicate log messages
+        if logger.hasHandlers():
+            logger.handlers.clear()
 
         pathList = [pfsVisit.pfsConfigFile.filepath]
         ingestPfsConfig(

@@ -7,7 +7,6 @@ import drpActor.utils.drpParsing as drpParsing
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 from drpActor.utils.files import CCDFile, HxFile, PfsConfigFile
-from drpActor.utils.pfsVisit import PfsVisit
 
 reload(dotRoach)
 
@@ -28,6 +27,8 @@ class DrpCmd(object):
         self.vocab = [
             ('ping', '', self.ping),
             ('status', '', self.status),
+
+            ('ingest', '<visit> [<spectrograph>] [<arm>]', self.ingest),
             ('reduce', '<where>', self.reduce),
 
             ('startDotRoach', '<dataRoot> <maskFile> <cams> [@(keepMoving)]', self.startDotRoach),
@@ -35,9 +36,6 @@ class DrpCmd(object):
             ('processDotRoach', '<iteration>', self.processDotRoach),
             ('dotRoach', '@phase2', self.dotRoachPhase2),
             ('dotRoach', '@phase3', self.dotRoachPhase3),
-
-            ('doReduce', '[@(off|on)]', self.doReduce),
-            ('doDetrend', '[@(off|on)]', self.doDetrend),
 
         ]
 
@@ -79,6 +77,36 @@ class DrpCmd(object):
         self.actor.sendVersionKey(cmd)
 
         cmd.inform('text="Present!"')
+        cmd.finish()
+
+    def ingest(self, cmd):
+
+        cmdKeys = cmd.cmd.keywords
+
+        visits = cmdKeys["visit"].values[0]
+        spectrograph = cmdKeys["spectrograph"].values[0] if 'spectrograph' in cmdKeys else None
+        arms = cmdKeys["arm"].values[0] if 'arm' in cmdKeys else None
+
+        engine = self.actor.loadDrpEngine()
+
+        visitList = drpParsing.makeVisitList(visits)
+
+        for visit in visitList:
+            pfsConfigPath, pattern = drpParsing.makeVisitPattern(visit, spectrograph=spectrograph, arms=arms)
+
+            pfsConfigFile = PfsConfigFile(visit, filepath=pfsConfigPath)
+            engine.newPfsConfig(pfsConfigFile)
+
+            for filepath in glob.glob(pattern):
+                rootNightType, fname = os.path.split(filepath)
+                rootNight, fitsType = os.path.split(rootNightType)
+                root, night = os.path.split(rootNight)
+                file = HxFile(rootNight, fitsType, fname) if fitsType == 'ramps' else CCDFile(root, night, fname)
+                engine.newExposure(file)
+
+            pfsVisit = engine.pfsVisits.get(visit)
+            engine.ingestHandler.doIngest(pfsVisit)
+
         cmd.finish()
 
     def reduce(self, cmd):
