@@ -7,6 +7,7 @@ import time
 import drpActor.utils.extractFlux as extractFlux
 import numpy as np
 import pandas as pd
+from pfs.datamodel.pfsConfig import FiberStatus
 from pfs.utils.fiberids import FiberIds
 
 
@@ -30,13 +31,14 @@ class DotRoach(object):
         self.maxIterInPhase1 = -1
         self.phase = 'phase1'
 
+        self.pfsConfig = None
         self.detectorMaps = dict()
         self.fiberTraces = dict()
 
     @property
     def monitoringFiberIds(self):
         # bitMask 0, means at Home. disabled / broken should already be at home.
-        atHome = self.maskFile[self.maskFile.bitMask == 0].fiberId
+        atHome = self.pfsConfig[self.pfsConfig.fiberStatus == FiberStatus.BROKENCOBRA].fiberId
         return list(atHome)
 
     @property
@@ -82,6 +84,8 @@ class DotRoach(object):
 
         # load fiberTraces on first iteration presumably.
         if not self.fiberTraces:
+            self.pfsConfig = self.engine.rawButler.get('pfsConfig', files[0].dataId)
+
             for file in files:
                 self.getFiberTrace(file.dataId)
 
