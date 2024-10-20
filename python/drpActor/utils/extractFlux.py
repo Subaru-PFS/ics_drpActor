@@ -1,10 +1,6 @@
-import datetime
-import glob
 import logging
 import time
 
-import lsst.afw.image as afwImage
-import lsst.afw.fits as afwFits
 import numpy as np
 import pandas as pd
 from lsst.ip.isr import AssembleCcdTask
@@ -16,47 +12,67 @@ assembleTask = AssembleCcdTask(config=config)
 from pfs.drp.stella.extractSpectraTask import ExtractSpectraTask
 
 config = ExtractSpectraTask.ConfigClass()
-config.doCrosstalk = True
+config.doCrosstalk = False
 config.validate()
 extractSpectra = ExtractSpectraTask(config=config)
 
 
-def getPFSA(dataId):
-    """Lookup a PFSA file that was written this year"""
-    today = datetime.date.today()
-    files = glob.glob(
-        f"/data/raw/{today.year}*/sps/PFSA%(visit)06d%(spectrograph)d{dict(b=1, r=2, n=3, m=4)[dataId['arm']]}.fits" % dataId)
-    if files:
-        return files[0]
-    else:
-        raise RuntimeError(f"Unable to find PFSA file for {dataId}")
+def getRaw(butler, dataId):
+    """
+    Retrieve a raw exposure from the Butler.
+
+    Parameters
+    ----------
+    butler : `lsst.daf.butler.Butler`
+        Butler instance used to retrieve datasets.
+    dataId : `dict`
+        Dictionary specifying the dataset to retrieve (e.g., exposure ID).
+
+    Returns
+    -------
+    exposure : `lsst.afw.image.ExposureF`
+        Retrieved raw exposure.
+
+    Raises
+    ------
+    RuntimeError
+        If no or multiple matching raw exposures are found.
+    """
+    refList = list(butler.registry.queryDatasets("raw.exposure", **dataId))
+
+    if len(refList) == 0:
+        raise RuntimeError(f'No raw.exposure found for {dataId}')
+    elif len(refList) != 1:
+        raise RuntimeError(f'Multiple references found for {dataId}')
+
+    ref = refList[0]
+    return butler.get(ref)
 
 
-def getWindowedFluxes(butler, dataId, fiberTrace, detectorMap, darkVariance=30, useButler=False, **kwargs):
+def getWindowedFluxes(butler, dataId, fiberTrace, detectorMap, darkVariance=30, **kwargs):
     """Return an estimate of the median flux in each fibre
 
-    butler: a butler pointing at the data
-    dataId: a dict specifying the desired data
-    fiberTraces: a dict indexed by arm containing the appropriate FiberTrace objects
-                 If None, read and construct the FiberTrace
-    kwargs: overrides for dataId
+     Parameters
+    ----------
+    butler : `lsst.daf.butler.Butler`
+        Butler instance for retrieving datasets.
+    dataId : `dict`
+        Dictionary specifying the exposure to process (e.g., exposure ID).
+    fiberTrace : `FiberTrace`
+        Fiber trace object containing fiber definitions and extraction profiles.
+    detectorMap : `DetectorMap`
+        Detector map object providing information about pixel-to-fiber mapping.
+    darkVariance : `float`, optional
+        Minimum variance value to be applied to prevent negative variance, by default 30.
+    **kwargs : `dict`
+        Additional overrides to update `dataId`.
     """
     start = time.time()
     dataId = dataId.copy()
     dataId.update(kwargs)
 
-    if useButler:
-        exp = butler.get("raw", dataId, filter=dataId['arm'])
-        exp = exp.convertF()
-    else:
-        camera = butler.get("camera")
-        fileName = getPFSA(dataId)
-        raw = afwImage.ImageF.readFits(fileName)
-        md = afwFits.readMetadata(fileName)
-
-        exp = afwImage.makeExposure(afwImage.makeMaskedImage(raw))
-        exp.setMetadata(md)
-        exp.setDetector(camera["%(arm)s%(spectrograph)d" % dataId])
+    exp = getRaw(butler, dataId)
+    exp = exp.convertF()
 
     md = exp.getMetadata()
     row0, row1 = md["W_CDROW0"], md["W_CDROWN"]

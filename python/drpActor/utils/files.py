@@ -90,7 +90,7 @@ class PfsFile(object):
     @property
     def dataId(self):
         """Return the data ID dictionary used by the Butler."""
-        return dict(exposure=self.visit, arm=self.arm, spectrograph=self.specNum)
+        return dict(exposure=self.visit, arm=self.arm, spectrograph=self.specNum, instrument="PFS")
 
     @property
     def cam(self):
@@ -126,7 +126,7 @@ class PfsFile(object):
         -----
         Sets `self.ingested` to True if the raw file is found in the datastore.
         """
-        self.ingested = len(list(butler.registry.queryDatasets("raw", instrument="PFS", **self.dataId))) == 1
+        self.ingested = len(list(butler.registry.queryDatasets("raw", **self.dataId))) == 1
 
 
 class CCDFile(PfsFile):
