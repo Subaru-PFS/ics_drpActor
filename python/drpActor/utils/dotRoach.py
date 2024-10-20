@@ -104,7 +104,7 @@ class DotRoach(object):
         if cameraKey not in self.fiberTraces:
             logging.info(f'making fiberTrace for {cameraKey}')
             fiberProfiles = self.engine.butler.get("fiberProfiles", dataId)
-            detectorMap = self.engine.butler.get("detectorMap", dataId)
+            detectorMap = self.engine.butler.get("detectorMap_calib", dataId)
             self.detectorMaps[cameraKey] = detectorMap
             self.fiberTraces[cameraKey] = fiberProfiles.makeFiberTracesFromDetectorMap(detectorMap)
 
