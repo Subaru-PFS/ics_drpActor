@@ -31,6 +31,7 @@ class DrpActor(Actor):
         # default return S now.
         site = 'H' if name == 'drp2' else getSite()
         self.site = site
+        self.engine = None
 
         Actor.__init__(self, name,
                        productName=productName,
@@ -53,7 +54,6 @@ class DrpActor(Actor):
             self.models['sps'].keyVarDict['fileIds'].addCallback(self.spsFileIds, callNow=False)
             self.models['sps'].keyVarDict['ingestPfsConfig'].addCallback(self.newPfsConfig, callNow=False)
 
-            self.engine = self.loadDrpEngine()
             self.everConnected = True
 
     def loadDrpEngine(self):
@@ -67,6 +67,9 @@ class DrpActor(Actor):
 
     def ccdFilepath(self, keyvar):
         """ CCD Filepath callback"""
+        if not self.engine:
+            return
+
         try:
             [root, night, fname] = keyvar.getValue()
         except ValueError:
@@ -76,6 +79,9 @@ class DrpActor(Actor):
 
     def hxFilepath(self, keyvar):
         """ CCD Filepath callback"""
+        if not self.engine:
+            return
+
         try:
             filepath = keyvar.getValue()
         except ValueError:
@@ -88,6 +94,9 @@ class DrpActor(Actor):
 
     def spsFileIds(self, keyvar):
         """ spsFileIds callback. """
+        if not self.engine:
+            return
+
         try:
             [visit, camList, camMask] = keyvar.getValue()
         except ValueError:
@@ -97,6 +106,9 @@ class DrpActor(Actor):
 
     def newPfsConfig(self, keyvar):
         """pfsConfigFinalized callback."""
+        if not self.engine:
+            return
+
         try:
             [visit, pfsConfigPath] = keyvar.getValue()
         except ValueError:
