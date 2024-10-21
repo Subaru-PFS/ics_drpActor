@@ -11,6 +11,7 @@ from drpActor.utils.pfsVisit import PfsVisit
 from drpActor.utils.tasks.ingest import IngestHandler
 from lsst.ctrl.mpexec import SeparablePipelineExecutor
 from lsst.pipe.base import Pipeline, ExecutionResources
+from drpActor.utils.chainedCollection import extend_collection_chain
 
 
 class DrpEngine:
@@ -75,7 +76,7 @@ class DrpEngine:
                                                                                          inputCollection,
                                                                                          outputCollection,
                                                                                          pipelineYaml,
-                                                                                         nCores )
+                                                                                         nCores)
 
     @property
     def logger(self):
@@ -119,7 +120,7 @@ class DrpEngine:
             self.logger.warning('Failed to load Butler: %s', self.actor.strTraceback(e))
             return None
 
-    def setupReducePipeline(self, datastore, inputCollection, outputCollection, pipelineYaml, nCores):
+    def setupReducePipeline(self, datastore, inputCollection, chainedCollection, pipelineYaml, nCores):
         """
         Set up the reduction pipeline and its executor.
 
@@ -129,8 +130,8 @@ class DrpEngine:
             Path to the datastore.
         inputCollection : str
             Name of the input collection.
-        outputCollection : str
-            Name of the output collection.
+        chainedCollection : str
+            Name of the output chained collection.
         pipelineYaml : str
             Path to the YAML file defining the reduction pipeline.
         nCores : int
@@ -146,10 +147,13 @@ class DrpEngine:
 
         # Append a timestamp to the output collection name
         timestamp = datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
-        outputCollection = os.path.join(outputCollection, timestamp)
+        run = os.path.join(chainedCollection, timestamp)
 
         # Initialize the Butler with the input and output collections
-        butler = Butler(datastore, collections=[inputCollection], run=outputCollection)
+        butler = Butler(datastore, collections=[inputCollection], run=run)
+
+        # extend collection chaine
+        extend_collection_chain(datastore, chainedCollection, run, logger=self.logger)
 
         # Set up the pipeline executor for parallel processing
         executor = SeparablePipelineExecutor(butler=butler, clobber_output=True,
