@@ -67,7 +67,11 @@ def makeVisitPattern(visit, spectrograph=None, arms=None):
     Returns:
     str: A glob pattern that matches PFS exposure files for the given visit, spectrograph(s), and arm(s).
     """
-    [pfsConfigPath] = glob.glob(f'/data/raw/*/pfsConfig/pfsConfig*-{visit:06d}.fits')
+    try:
+        [pfsConfigPath] = glob.glob(f'/data/raw/*/pfsConfig/pfsConfig*-{visit:06d}.fits')
+    except ValueError:
+        raise RuntimeError(f'pfsConfig not found for visit {visit:06d}')
+
     pfsConfigDir, _ = os.path.split(pfsConfigPath)
     rootDir, _ = os.path.split(pfsConfigDir)
 

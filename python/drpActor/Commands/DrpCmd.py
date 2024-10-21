@@ -92,7 +92,10 @@ class DrpCmd(object):
         visitList = drpParsing.makeVisitList(visits)
 
         for visit in visitList:
-            pfsConfigPath, pattern = drpParsing.makeVisitPattern(visit, spectrograph=spectrograph, arms=arms)
+            try:
+                pfsConfigPath, pattern = drpParsing.makeVisitPattern(visit, spectrograph=spectrograph, arms=arms)
+            except RuntimeError:
+                cmd.warn(f'text="{visit} not found..."')
 
             pfsConfigFile = PfsConfigFile(visit, filepath=pfsConfigPath)
             engine.newPfsConfig(pfsConfigFile)
@@ -106,6 +109,7 @@ class DrpCmd(object):
 
             pfsVisit = engine.pfsVisits.get(visit)
             engine.ingestHandler.doIngest(pfsVisit)
+            cmd.inform(f'text="{visit} ingested !"')
 
         cmd.finish()
 
