@@ -1,9 +1,10 @@
+import logging
 import time
 
 from lsst.obs.base.ingest import RawIngestConfig
 from lsst.obs.pfs.gen3 import PfsRawIngestTask
 from pfs.drp.stella.gen3 import ingestPfsConfig
-import logging
+
 
 class IngestHandler(object):
     """

@@ -52,7 +52,7 @@ class DrpActor(Actor):
                 self.logger.info(f'{hx}.filename callback attached')
 
             self.models['sps'].keyVarDict['fileIds'].addCallback(self.spsFileIds, callNow=False)
-            self.models['sps'].keyVarDict['ingestPfsConfig'].addCallback(self.newPfsConfig, callNow=False)
+            self.models['iic'].keyVarDict['pfsConfig'].addCallback(self.newPfsConfig, callNow=False)
 
             self.everConnected = True
 
@@ -110,11 +110,11 @@ class DrpActor(Actor):
             return
 
         try:
-            [visit, pfsConfigPath] = keyvar.getValue()
+            [designId, visit, dateDir, ra, dec, pa, designName, designId0, variant] = keyvar.getValue()
         except ValueError:
             return
 
-        self.engine.newPfsConfig(PfsConfigFile(visit, pfsConfigPath))
+        self.engine.newPfsConfig(PfsConfigFile.fromKeys(designId, visit, dateDir))
 
 
 def main():

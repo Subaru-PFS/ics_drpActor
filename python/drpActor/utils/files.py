@@ -3,7 +3,7 @@ import os
 from ics.utils.sps.spectroIds import SpectroIds
 
 
-class PfsConfigFile(object):
+class PfsConfigFile:
     """
     Represents a PFS configuration file for a specific visit.
 
@@ -11,9 +11,21 @@ class PfsConfigFile(object):
     ----------
     visit : int
         The visit identifier associated with the configuration file.
-    filepath : str
-        The path to the pfsConfig file.
+    filepath : str, optional
+        The path to the pfsConfig file, if available.
+
+    Attributes
+    ----------
+    visit : int
+        Visit identifier.
+    filepath : str or None
+        File path of the pfsConfig file.
+    ingested : bool
+        Indicates whether the file has been ingested into the datastore.
     """
+
+    fileNameFormat = "pfsConfig-0x%016x-%06d.fits"
+    rootDir = '/data/raw'
 
     def __init__(self, visit, filepath=None):
         self.visit = visit
@@ -24,6 +36,12 @@ class PfsConfigFile(object):
     def dataId(self):
         """Return the data ID dictionary used by the Butler."""
         return dict(exposure=self.visit, instrument="PFS")
+
+    @classmethod
+    def fromKeys(cls, pfsDesignId, visit, dateDir):
+        """Create a PfsConfigFile instance from design ID, visit, and date directory."""
+        filepath = os.path.join(cls.rootDir, dateDir, cls.fileNameFormat % (pfsDesignId, visit))
+        return cls(visit, filepath=filepath)
 
     def initialize(self, butler):
         """
@@ -41,7 +59,7 @@ class PfsConfigFile(object):
         self.ingested = len(list(butler.registry.queryDatasets("pfsConfig", **self.dataId))) == 1
 
 
-class PfsFile(object):
+class PfsFile:
     """
     Placeholder class representing a raw CCD file from the PFS instrument.
 
