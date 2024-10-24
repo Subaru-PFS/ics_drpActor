@@ -40,7 +40,7 @@ class PfsConfigFile:
     @classmethod
     def fromKeys(cls, pfsDesignId, visit, dateDir):
         """Create a PfsConfigFile instance from design ID, visit, and date directory."""
-        filepath = os.path.join(cls.rootDir, dateDir, cls.fileNameFormat % (pfsDesignId, visit))
+        filepath = os.path.join(cls.rootDir, dateDir, 'pfsConfig', cls.fileNameFormat % (pfsDesignId, visit))
         return cls(visit, filepath=filepath)
 
     def initialize(self, butler):
