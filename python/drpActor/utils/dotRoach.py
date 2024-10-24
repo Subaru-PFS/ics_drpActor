@@ -95,7 +95,7 @@ class DotRoach(object):
 
         # load fiberTraces on first iteration presumably.
         if not self.fiberTraces:
-            self.pfsConfig = self.engine.rawButler.get('pfsConfig', files[0].dataId)
+            self.pfsConfig = self.engine.pfsConfigButler.get('pfsConfig', files[0].dataId)
 
             for file in files:
                 self.getFiberTrace(file.dataId)
