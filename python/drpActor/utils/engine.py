@@ -64,6 +64,8 @@ class DrpEngine:
         self.pfsVisits = {}  # Dictionary to store visits and their exposures
         self.rawButler = None  # Butler instance for raw data handling
 
+        self.dotRoach = None
+
         # Enable auto-ingest and auto-reduction by default
         self.doAutoIngest = True
         self.doAutoReduce = True
@@ -222,12 +224,19 @@ class DrpEngine:
         if self.doAutoIngest:
             self.ingestHandler.doIngest(pfsVisit)
 
-        if self.doAutoReduce and pfsVisit.isIngested:
-            self.runReductionPipeline(where=f"visit={pfsVisit.visit}")
+        if pfsVisit.isIngested:
+            if self.doAutoReduce:
+                self.runReductionPipeline(where=f"visit={pfsVisit.visit}")
 
-            # generating filepath for gingaActor.
-            for filepath in pfsVisit.getCalexp(self.reduceButler):
-                self.actor.bcast.inform(f'detrend={filepath}')
+            if self.dotRoach is not None:
+                # filtering only selected cams in dotRoach.
+                relevantFiles = [file for file in pfsVisit.exposureFiles if file.cam in self.dotRoach.cams]
+
+                if not relevantFiles:
+                    return
+
+                self.dotRoach.runAway(relevantFiles)
+                self.dotRoach.status(cmd=self.actor.bcast)
 
     def runReductionPipeline(self, where):
         """
@@ -242,3 +251,23 @@ class DrpEngine:
 
         self.executor.pre_execute_qgraph(quantumGraph)
         self.executor.run_pipeline(graph=quantumGraph)
+
+    def startDotRoach(self, dataRoot, maskFile, cams, keepMoving=False):
+        """Starting dotRoach loop."""
+        # Deactivating auto-detrend.
+        self.doAutoReduce = False
+        # instantiating DotRoach object.
+        self.dotRoach = dotRoach.DotRoach(self, dataRoot, maskFile, cams, keepMoving=keepMoving)
+
+    def stopDotRoach(self, cmd):
+        """Stopping dotRoach loop"""
+        # Re-activating auto-detrend.
+        self.doAutoReduce = True
+
+        if not self.dotRoach:
+            cmd.warn('text="no dotRoach loop on-going."')
+            return
+
+        cmd.inform('text="ending dotRoach loop"')
+        self.dotRoach.finish()
+        self.dotRoach = None
