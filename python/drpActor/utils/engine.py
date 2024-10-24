@@ -50,7 +50,7 @@ class DrpEngine:
     timeBetweenAttempts = 15  # Time (in seconds) between retries
 
     def __init__(self, actor, datastore, rawRun, pfsConfigRun, ingestMode,
-                 inputCollection, outputCollection, pipelineYaml, nCores, **config):
+                 inputCollection, outputCollection, pipelineYaml, nCores, doGenDetrendKey=False, **config):
         """Initialize the DrpEngine with actor, datastore, collections, and settings."""
         self.actor = actor  # Reference to the actor for logging and configuration
         self.datastore = datastore  # Path to the data storage location
@@ -60,6 +60,7 @@ class DrpEngine:
         self.inputCollection = inputCollection  # Name of the input collection
         self.outputCollection = outputCollection  # Name of the output collection
         self.nCores = nCores  # Number of CPU cores to allocate
+        self.doGenDetrendKey = doGenDetrendKey
         self.config = config  # Additional configuration parameters
         self.pfsVisits = {}  # Dictionary to store visits and their exposures
         self.rawButler = None  # Butler instance for raw data handling
@@ -226,17 +227,19 @@ class DrpEngine:
 
         if pfsVisit.isIngested:
             if self.doAutoReduce:
+                # setting up a callback to be generated when the file is generated.
+                if self.doGenDetrendKey:
+                    pfsVisit.setupDetrendKey(butler=self.reduceButler, callback=self.actor.bcast.inform)
+
+                # Running the pipeline for that visit.
                 self.runReductionPipeline(where=f"visit={pfsVisit.visit}")
 
+            # run roaches ! run !
             if self.dotRoach is not None:
-                # filtering only selected cams in dotRoach.
-                relevantFiles = [file for file in pfsVisit.exposureFiles if file.cam in self.dotRoach.cams]
+                self.dotRoach.run(pfsVisit)
 
-                if not relevantFiles:
-                    return
-
-                self.dotRoach.runAway(relevantFiles)
-                self.dotRoach.status(cmd=self.actor.bcast)
+        # Just declaring that visit should be processed.
+        pfsVisit.finish()
 
     def runReductionPipeline(self, where):
         """

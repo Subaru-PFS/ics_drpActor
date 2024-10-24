@@ -1,6 +1,9 @@
+import logging
 import os
+import time
 
 from ics.utils.sps.spectroIds import SpectroIds
+from ics.utils.threading import singleShot
 
 
 class PfsConfigFile:
@@ -89,10 +92,12 @@ class PfsFile:
     fromArmNum = dict([(v, k) for k, v in SpectroIds.validArms.items()])
 
     def __init__(self, root, night, filename):
+        """Initialize the PfsFile object."""
         self.root = root
         self.night = night
         self.filename = filename
 
+        # Extract metadata from filename
         self.visit = PfsFile.toVisit(filename)
         self.specNum = PfsFile.toSpecNum(filename)
         self.armNum = PfsFile.toArmNum(filename)
@@ -145,6 +150,66 @@ class PfsFile:
         Sets `self.ingested` to True if the raw file is found in the datastore.
         """
         self.ingested = len(list(butler.registry.queryDatasets("raw", **self.dataId))) == 1
+
+    def postIsrFilepath(self, butler):
+        """
+        Retrieve the file path of the post-ISR image.
+
+        Parameters
+        ----------
+        butler : lsst.daf.butler.Butler
+            Butler instance used to query the datastore.
+
+        Returns
+        -------
+        str
+            The local file path to the post-ISR image.
+        """
+        uri = butler.getURI('calexp', **self.dataId)
+        _, filepath = uri.split('file://')  # Extract the file path from the URI
+        return filepath
+
+    @singleShot
+    def setupDetrendKeyCallback(self, pfsVisit, butler, callback):
+        """
+        Monitor the datastore for the presence of post-ISR images and trigger a callback.
+
+        Parameters
+        ----------
+        pfsVisit : int
+            The visit ID associated with the observation.
+        butler : lsst.daf.butler.Butler
+            Butler instance used to query the datastore.
+        callback : callable
+            The callback function to invoke when the post-ISR image is available.
+
+        Notes
+        -----
+        This function waits for the post-ISR image to become available within a time limit.
+        If the image is found, the callback is triggered with the image's file path.
+        If not found, a warning is logged.
+        """
+
+        def postIsrWasGenerated():
+            """Check if the post-ISR image is available in the datastore."""
+            return len(list(butler.registry.queryDatasets('postISRCCD', **self.dataId))) != 0
+
+        start_time = time.time()
+        wait_interval = 2  # seconds
+        timeout = 150  # seconds
+
+        # Wait for the post-ISR image to become available or until timeout
+        while not postIsrWasGenerated():
+            if (time.time() - start_time) > timeout:
+                break
+            time.sleep(wait_interval)
+
+        # If post-ISR image found, trigger callback; otherwise, log a warning
+        if postIsrWasGenerated():
+            callback(f'detrend={self.postIsrFilepath(butler)}')
+        else:
+            logger = logging.getLogger('postISR')
+            logger.warning(f'Could not find postISRCCD for {self.dataId}')
 
 
 class CCDFile(PfsFile):

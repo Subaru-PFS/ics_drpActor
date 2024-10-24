@@ -45,6 +45,17 @@ class DotRoach(object):
     def strategy(self):
         return self.phase[:6]
 
+    def run(self, pfsVisit):
+        """Run method using pfsVisit."""
+        # filtering only selected cams in dotRoach.
+        relevantFiles = [file for file in pfsVisit.exposureFiles if file.cam in self.cams]
+
+        if not relevantFiles:
+            return
+
+        self.runAway(relevantFiles)
+        self.status(cmd=self.engine.actor.bcast)
+
     def loadAllIterations(self):
         """Load allIterations dataframe."""
         return pd.read_csv(self.pathDict['allIterations'], index_col=0)
