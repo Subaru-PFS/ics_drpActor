@@ -223,7 +223,7 @@ class DrpEngine:
             self.ingestHandler.doIngest(pfsVisit)
 
         if self.doAutoReduce and pfsVisit.isIngested:
-            self.runReductionPipeline(where=f"exposure={pfsVisit.visit}")
+            self.runReductionPipeline(where=f"visit={pfsVisit.visit}")
 
     def runReductionPipeline(self, where):
         """
