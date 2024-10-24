@@ -214,8 +214,9 @@ class PfsFile:
             """Check if the post-ISR image is available in the datastore."""
             return len(list(butler.registry.queryDatasets('postISRCCD', **self.dataId))) != 0
 
+        logger = logging.getLogger('postISR')
         start_time = time.time()
-        wait_interval = 2  # seconds
+        wait_interval = 5  # seconds
         timeout = 150  # seconds
 
         # Wait for the post-ISR image to become available or until timeout
@@ -223,12 +224,12 @@ class PfsFile:
             if (time.time() - start_time) > timeout:
                 break
             time.sleep(wait_interval)
+            logger.info(f'Checking postISRCCD for {self.dataId}')
 
         # If post-ISR image found, trigger callback; otherwise, log a warning
         if postIsrWasGenerated():
             callback(f'detrend={self.postIsrFilepath(butler)}')
         else:
-            logger = logging.getLogger('postISR')
             logger.warning(f'Could not find postISRCCD for {self.dataId}')
 
 
