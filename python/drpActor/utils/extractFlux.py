@@ -17,38 +17,6 @@ config.validate()
 extractSpectra = ExtractSpectraTask(config=config)
 
 
-def getRaw(butler, dataId):
-    """
-    Retrieve a raw exposure from the Butler.
-
-    Parameters
-    ----------
-    butler : `lsst.daf.butler.Butler`
-        Butler instance used to retrieve datasets.
-    dataId : `dict`
-        Dictionary specifying the dataset to retrieve (e.g., exposure ID).
-
-    Returns
-    -------
-    exposure : `lsst.afw.image.ExposureF`
-        Retrieved raw exposure.
-
-    Raises
-    ------
-    RuntimeError
-        If no or multiple matching raw exposures are found.
-    """
-    refList = list(butler.registry.queryDatasets("raw.exposure", **dataId))
-
-    if len(refList) == 0:
-        raise RuntimeError(f'No raw.exposure found for {dataId}')
-    elif len(refList) != 1:
-        raise RuntimeError(f'Multiple references found for {dataId}')
-
-    ref = refList[0]
-    return butler.get(ref)
-
-
 def getWindowedFluxes(butler, dataId, fiberTrace, detectorMap, darkVariance=30, **kwargs):
     """Return an estimate of the median flux in each fibre
 
@@ -71,7 +39,7 @@ def getWindowedFluxes(butler, dataId, fiberTrace, detectorMap, darkVariance=30, 
     dataId = dataId.copy()
     dataId.update(kwargs)
 
-    exp = getRaw(butler, dataId)
+    exp = butler.get('raw.exposure', dataId)
     exp = exp.convertF()
 
     md = exp.getMetadata()
