@@ -35,7 +35,7 @@ class PfsConfigFile:
     @property
     def dataId(self):
         """Return the data ID dictionary used by the Butler."""
-        return dict(exposure=self.visit, instrument="PFS")
+        return dict(visit=self.visit)
 
     @classmethod
     def fromKeys(cls, pfsDesignId, visit, dateDir):
@@ -61,7 +61,7 @@ class PfsConfigFile:
 
 class PfsFile:
     """
-    Placeholder class representing a raw CCD file from the PFS instrument.
+    Placeholder class representing a raw Exposure file CCD or H4.
 
     Parameters
     ----------
@@ -108,7 +108,7 @@ class PfsFile:
     @property
     def dataId(self):
         """Return the data ID dictionary used by the Butler."""
-        return dict(exposure=self.visit, arm=self.arm, spectrograph=self.specNum, instrument="PFS")
+        return dict(visit=self.visit, arm=self.arm, spectrograph=self.specNum)
 
     @property
     def cam(self):
