@@ -1,9 +1,29 @@
 import logging
 import os
 import time
+from functools import wraps
+from threading import Thread
 
 from ics.utils.sps.spectroIds import SpectroIds
-from ics.utils.threading import singleShot
+
+
+def singleShot(func):
+    """Decorator to run a function in a separate thread and clean up after it completes."""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        def run_in_thread():
+            try:
+                func(*args, **kwargs)
+            except Exception as e:
+                logger = logging.getLogger(func.__module__)
+                logger.exception(f"Exception in {func.__name__}: {e}")
+
+        # Start the function in a new thread.
+        thread = Thread(target=run_in_thread, daemon=True)
+        thread.start()
+
+    return wrapper
 
 
 class PfsConfigFile:
