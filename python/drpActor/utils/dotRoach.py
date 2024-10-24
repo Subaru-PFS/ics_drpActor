@@ -95,7 +95,7 @@ class DotRoach(object):
 
         # load fiberTraces on first iteration presumably.
         if not self.fiberTraces:
-            self.pfsConfig = self.engine.pfsConfigButler.get('pfsConfig', files[0].dataId)
+            self.pfsConfig = self.engine.butler.get('pfsConfig', files[0].dataId)
 
             for file in files:
                 self.getFiberTrace(file.dataId)
@@ -103,7 +103,7 @@ class DotRoach(object):
         for file in files:
             fiberTrace, detectorMap = self.getFiberTrace(file.dataId)
             p = multiprocessing.Process(target=parallelize,
-                                        args=(self.engine.rawButler, file.dataId, fiberTrace, detectorMap, fluxPerFiber))
+                                        args=(self.engine.butler, file.dataId, fiberTrace, detectorMap, fluxPerFiber))
             jobs.append(p)
             p.start()
 
@@ -118,8 +118,8 @@ class DotRoach(object):
 
         if cameraKey not in self.fiberTraces:
             logging.info(f'making fiberTrace for {cameraKey}')
-            fiberProfiles = self.engine.rawButler.get("fiberProfiles", dataId)
-            detectorMap = self.engine.rawButler.get("detectorMap_calib", dataId)
+            fiberProfiles = self.engine.butler.get("fiberProfiles", dataId)
+            detectorMap = self.engine.butler.get("detectorMap_calib", dataId)
             self.detectorMaps[cameraKey] = detectorMap
             self.fiberTraces[cameraKey] = fiberProfiles.makeFiberTracesFromDetectorMap(detectorMap)
 

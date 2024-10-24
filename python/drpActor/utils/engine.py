@@ -74,6 +74,9 @@ class DrpEngine:
         # Initialize Butler instances and handlers
         self.rawButler = self.loadButler(self.rawRun)
         self.pfsConfigButler = self.loadButler(self.pfsConfigRun)
+        # just convenient for now.
+        self.butler = Butler(self.datastore, collections=[self.inputCollection, self.outputCollection])
+
         self.ingestHandler = IngestHandler(self)
         self.reducePipeline, self.reduceButler, self.executor = self.setupReducePipeline(datastore,
                                                                                          inputCollection,
