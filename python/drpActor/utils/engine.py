@@ -225,6 +225,10 @@ class DrpEngine:
         if self.doAutoReduce and pfsVisit.isIngested:
             self.runReductionPipeline(where=f"visit={pfsVisit.visit}")
 
+            # generating filepath for gingaActor.
+            for filepath in pfsVisit.getCalexp(self.reduceButler):
+                self.actor.bcast.inform(f'detrend={filepath}')
+
     def runReductionPipeline(self, where):
         """
         Execute the reduction pipeline for a given visit.

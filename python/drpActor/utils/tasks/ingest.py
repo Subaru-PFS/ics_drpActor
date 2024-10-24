@@ -46,14 +46,18 @@ class IngestHandler(object):
             logger.handlers.clear()
 
         pathList = [pfsVisit.pfsConfigFile.filepath]
-        ingestPfsConfig(
+
+        try:
+            ingestPfsConfig(
             self.engine.datastore,
             'PFS',
             self.engine.pfsConfigRun,
             pathList,
             transfer=self.engine.ingestMode,
             update=True
-        )
+            )
+        except Exception as e:
+            logger.exception(e)
 
         pfsVisit.pfsConfigFile.initialize(self.engine.pfsConfigButler)
 
