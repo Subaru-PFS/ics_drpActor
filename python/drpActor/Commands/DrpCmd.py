@@ -114,8 +114,7 @@ class DrpCmd(object):
                 engine.newExposure(file)
 
             pfsVisit = engine.pfsVisits.get(visit)
-            engine.ingestHandler.doIngest(pfsVisit)
-            cmd.inform(f'text="{visit} ingested !"')
+            engine.ingestHandler.doIngest(pfsVisit, cmd=cmd)
 
         cmd.finish()
 
