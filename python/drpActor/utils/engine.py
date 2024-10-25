@@ -73,6 +73,9 @@ class DrpEngine:
         # Initialize Butler instances and handlers
         self.rawButler = self.loadButler(self.rawRun)
         self.pfsConfigButler = self.loadButler(self.pfsConfigRun)
+        # just convenient for now.
+        self.butler = Butler(self.datastore, collections=[self.inputCollection, self.outputCollection])
+
         self.ingestHandler = IngestHandler(self)
         self.reducePipeline, self.reduceButler, self.executor = self.setupReducePipeline(datastore,
                                                                                          inputCollection,
@@ -226,17 +229,12 @@ class DrpEngine:
 
         if pfsVisit.isIngested:
             if self.doAutoReduce:
+                # Running the pipeline for that visit.
                 self.runReductionPipeline(where=f"visit={pfsVisit.visit}")
 
+            # run roaches ! run !
             if self.dotRoach is not None:
-                # filtering only selected cams in dotRoach.
-                relevantFiles = [file for file in pfsVisit.exposureFiles if file.cam in self.dotRoach.cams]
-
-                if not relevantFiles:
-                    return
-
-                self.dotRoach.runAway(relevantFiles)
-                self.dotRoach.status(cmd=self.actor.bcast)
+                self.dotRoach.run(pfsVisit)
 
     def runReductionPipeline(self, where):
         """
