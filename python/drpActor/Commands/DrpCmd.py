@@ -101,7 +101,7 @@ class DrpCmd(object):
                 pfsConfigPath, pattern = drpParsing.makeVisitPattern(visit, spectrograph=spectrograph, arms=arms)
             except RuntimeError:
                 cmd.warn(f'text="{visit} not found..."')
-                return
+                continue
 
             pfsConfigFile = PfsConfigFile(visit, filepath=pfsConfigPath)
             engine.newPfsConfig(pfsConfigFile)
