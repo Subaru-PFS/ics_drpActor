@@ -28,7 +28,7 @@ class DrpCmd(object):
             ('ping', '', self.ping),
             ('status', '', self.status),
 
-            ('ingest', '<visit> [<spectrograph>] [<arm>]', self.ingest),
+            ('ingest', '<visit> [<spectrograph>] [<arm>] [@(newEngine)]', self.ingest),
             ('reduce', '<where>', self.reduce),
 
             ('startDotRoach', '<dataRoot> <maskFile> <cams> [@(keepMoving)]', self.startDotRoach),
@@ -79,15 +79,20 @@ class DrpCmd(object):
         cmd.inform('text="Present!"')
         cmd.finish()
 
-    def ingest(self, cmd):
+    def getEngine(self, cmdKeys):
+        """Get drp engine."""
+        engine = self.actor.engine if 'newEngine' not in cmdKeys else self.actor.loadDrpEngine()
+        return engine
 
+    def ingest(self, cmd):
+        """Ingest visits into the configured datastore."""
         cmdKeys = cmd.cmd.keywords
 
         visits = cmdKeys["visit"].values[0]
         spectrograph = cmdKeys["spectrograph"].values[0] if 'spectrograph' in cmdKeys else None
         arms = cmdKeys["arm"].values[0] if 'arm' in cmdKeys else None
 
-        engine = self.actor.loadDrpEngine()
+        engine = self.getEngine(cmdKeys)
 
         visitList = drpParsing.makeVisitList(visits)
 
@@ -120,7 +125,7 @@ class DrpCmd(object):
 
         where = cmdKeys["where"].values[0]
 
-        engine = self.actor.loadDrpEngine()
+        engine = self.getEngine(cmdKeys)
         engine.runReductionPipeline(where=where)
 
         cmd.finish()
