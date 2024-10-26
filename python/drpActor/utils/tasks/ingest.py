@@ -57,17 +57,11 @@ class IngestHandler(object):
 
     def ingestExposureFiles(self, pfsVisit):
         """Ingest all exposure files for the given visit."""
-        doIngestPfsConfig = True
-
-        if not pfsVisit.exposureFiles:
-            self.engine.logger.warning(f'No exposure files found for visit {pfsVisit.visit}.')
-            return False
-
         toIngest = [file for file in pfsVisit.exposureFiles if not file.ingested]
 
         if not toIngest:
             self.engine.logger.warning(f'Exposure files already ingested for visit {pfsVisit.visit}.')
-            return False
+            return
 
         pathList = [file.filepath for file in pfsVisit.exposureFiles]
         self.engine.logger.info(f'Ingesting exposure files for visit {pfsVisit.visit}.')
@@ -76,15 +70,17 @@ class IngestHandler(object):
         for file in toIngest:
             file.initialize(self.engine.rawButler)
 
-        return doIngestPfsConfig
-
     def doIngest(self, pfsVisit, cmd=None):
         """Ingest both exposure files and the pfsConfig file for a visit."""
+        if not pfsVisit.exposureFiles:
+            self.engine.logger.warning(f'No exposure files found for visit {pfsVisit.visit}.')
+            return
+
         cmd = self.engine.actor.bcast if cmd is None else cmd
         startTime = time.time()
 
-        if self.ingestExposureFiles(pfsVisit):
-            self.ingestPfsConfig(pfsVisit)
+        self.ingestExposureFiles(pfsVisit)
+        self.ingestPfsConfig(pfsVisit)
 
         returnCode = 0
         timing = time.time() - startTime

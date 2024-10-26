@@ -45,12 +45,8 @@ class DrpEngine:
         Additional configuration parameters for the engine.
     """
 
-    # Configuration parameters for retries if issues arise during processing
-    maxAttempts = 100  # Maximum retry attempts
-    timeBetweenAttempts = 15  # Time (in seconds) between retries
-
     def __init__(self, actor, datastore, rawRun, pfsConfigRun, ingestMode,
-                 inputCollection, outputCollection, pipelineYaml, nCores, **config):
+                 inputCollection, outputCollection, pipelineYaml, nCores, doGenDetrendKey=False, **config):
         """Initialize the DrpEngine with actor, datastore, collections, and settings."""
         self.actor = actor  # Reference to the actor for logging and configuration
         self.datastore = datastore  # Path to the data storage location
@@ -60,6 +56,7 @@ class DrpEngine:
         self.inputCollection = inputCollection  # Name of the input collection
         self.outputCollection = outputCollection  # Name of the output collection
         self.nCores = nCores  # Number of CPU cores to allocate
+        self.doGenDetrendKey = doGenDetrendKey
         self.config = config  # Additional configuration parameters
         self.pfsVisits = {}  # Dictionary to store visits and their exposures
         self.rawButler = None  # Butler instance for raw data handling
@@ -77,11 +74,11 @@ class DrpEngine:
         self.butler = Butler(self.datastore, collections=[self.inputCollection, self.outputCollection])
 
         self.ingestHandler = IngestHandler(self)
-        self.reducePipeline, self.reduceButler, self.executor = self.setupReducePipeline(datastore,
-                                                                                         inputCollection,
-                                                                                         outputCollection,
-                                                                                         pipelineYaml,
-                                                                                         nCores)
+        self.reducePipeline, self.reduceButler, self.executor, self.timestamp = self.setupReducePipeline(datastore,
+                                                                                                         inputCollection,
+                                                                                                         outputCollection,
+                                                                                                         pipelineYaml,
+                                                                                                         nCores)
 
     @property
     def logger(self):
@@ -164,7 +161,7 @@ class DrpEngine:
         executor = SeparablePipelineExecutor(butler=butler, clobber_output=True,
                                              resources=ExecutionResources(num_cores=nCores))
 
-        return pipeline, butler, executor
+        return pipeline, butler, executor, timestamp
 
     def newPfsConfig(self, pfsConfigFile):
         """
@@ -229,12 +226,19 @@ class DrpEngine:
 
         if pfsVisit.isIngested:
             if self.doAutoReduce:
+                # setting up a callback to be generated when the file is generated.
+                if self.doGenDetrendKey:
+                    pfsVisit.setupDetrendCallback(self)
+
                 # Running the pipeline for that visit.
                 self.runReductionPipeline(where=f"visit={pfsVisit.visit}")
 
             # run roaches ! run !
             if self.dotRoach is not None:
                 self.dotRoach.run(pfsVisit)
+
+        # Just declaring that visit should be processed, just a placeholder for now.
+        pfsVisit.finish()
 
     def runReductionPipeline(self, where):
         """
