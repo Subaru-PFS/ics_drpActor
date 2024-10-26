@@ -54,7 +54,6 @@ class DotRoach(object):
             return
 
         self.runAway(relevantFiles)
-        self.status(cmd=self.engine.actor.bcast)
 
     def loadAllIterations(self):
         """Load allIterations dataframe."""
