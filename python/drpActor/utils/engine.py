@@ -249,7 +249,11 @@ class DrpEngine:
         where : str
             Query to filter the data for the specific visit.
         """
-        quantumGraph = self.executor.make_quantum_graph(pipeline=self.reducePipeline, where=where)
+        try:
+            quantumGraph = self.executor.make_quantum_graph(pipeline=self.reducePipeline, where=where)
+        except Exception as e:
+            self.logger.exception(e)
+            return
 
         self.executor.pre_execute_qgraph(quantumGraph)
         self.executor.run_pipeline(graph=quantumGraph)
