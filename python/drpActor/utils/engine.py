@@ -79,6 +79,7 @@ class DrpEngine:
                                                                                                          outputCollection,
                                                                                                          pipelineYaml,
                                                                                                          nCores)
+        self.condaEnv = os.environ.get("CONDA_DEFAULT_ENV")
 
     @property
     def logger(self):
@@ -256,7 +257,10 @@ class DrpEngine:
             return
 
         self.executor.pre_execute_qgraph(quantumGraph)
-        self.executor.run_pipeline(graph=quantumGraph)
+
+        # passing down num_proc for the most recent version.
+        kwargs = dict() if self.condaEnv == 'lsst-scipipe-7.0.1' else dict(num_proc=self.nCores)
+        self.executor.run_pipeline(graph=quantumGraph, **kwargs)
 
     def startDotRoach(self, dataRoot, maskFile, cams, keepMoving=False):
         """Starting dotRoach loop."""
