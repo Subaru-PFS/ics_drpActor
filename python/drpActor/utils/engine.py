@@ -1,4 +1,5 @@
 import datetime
+import logging
 import os
 from importlib import reload
 
@@ -8,6 +9,7 @@ reload(dotRoach)
 
 from lsst.daf.butler import Butler
 from drpActor.utils.pfsVisit import PfsVisit
+from drpActor.utils.lsstLog import setLsstLongLog
 from drpActor.utils.tasks.ingest import IngestHandler
 from lsst.ctrl.mpexec import SeparablePipelineExecutor
 from lsst.pipe.base import Pipeline, ExecutionResources
@@ -257,6 +259,12 @@ class DrpEngine:
             return
 
         self.executor.pre_execute_qgraph(quantumGraph)
+
+        # setting long_log disgustingly.
+        long_log = self.actor.actorConfig['lsstLog'].get('long_log', False)
+        level = self.actor.actorConfig['lsstLog'].get('level', logging.INFO)
+        if long_log:
+            setLsstLongLog(level)
 
         # passing down num_proc for the most recent version.
         kwargs = dict() if self.condaEnv == 'lsst-scipipe-7.0.1' else dict(num_proc=self.nCores)
