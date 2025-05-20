@@ -17,7 +17,7 @@ config.validate()
 extractSpectra = ExtractSpectraTask(config=config)
 
 
-def getWindowedFluxes(butler, dataId, fiberTrace, detectorMap, darkVariance=30, **kwargs):
+def getWindowedFluxes(exp, dataId, fiberTrace, detectorMap, darkVariance=30, **kwargs):
     """Return an estimate of the median flux in each fibre
 
      Parameters
@@ -38,9 +38,6 @@ def getWindowedFluxes(butler, dataId, fiberTrace, detectorMap, darkVariance=30, 
     start = time.time()
     dataId = dataId.copy()
     dataId.update(kwargs)
-
-    exp = butler.get('raw.exposure', dataId)
-    exp = exp.convertF()
 
     md = exp.getMetadata()
     row0, row1 = md["W_CDROW0"], md["W_CDROWN"]
