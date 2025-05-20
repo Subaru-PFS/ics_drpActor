@@ -267,6 +267,9 @@ class DrpEngine:
             setLsstLongLog(level)
 
         self.logger.info(f"multiprocessing start method: {mp.get_start_method()}")
+
+        logging.getLogger('lsst.ctrl.mpexec.mpGraphExecutor').setLevel(logging.DEBUG)
+
         # passing down num_proc for the most recent version.
         self.executor.run_pipeline(graph=quantumGraph, num_proc=self.maxWorkers)
 
