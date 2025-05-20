@@ -16,6 +16,8 @@ from lsst.ctrl.mpexec import SeparablePipelineExecutor
 from lsst.pipe.base import Pipeline, ExecutionResources
 from drpActor.utils.chainedCollection import extend_collection_chain
 
+import multiprocessing as mp
+mp.set_start_method("fork", force=True)
 
 class DrpEngine:
     """
