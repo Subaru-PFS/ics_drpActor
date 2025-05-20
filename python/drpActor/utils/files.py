@@ -173,7 +173,8 @@ class PfsFile:
             filename = f'{"_".join(parts)}.fits'
             return filename
 
-        directory = os.path.join(engine.datastore, engine.outputCollection, engine.timestamp, 'postISRCCD')
+        directory = os.path.join(engine.datastore, engine.outputCollection, engine.timestamp, 'postISRCCD',
+                                 self.night.replace('-', ''), f'{self.dataId["visit"]:06d}')
         filename = toPostISRCCDFilename(self.dataId, engine.outputCollection, engine.timestamp)
         fullPath = os.path.join(directory, filename)
 
