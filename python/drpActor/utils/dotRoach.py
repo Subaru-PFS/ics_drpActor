@@ -14,7 +14,7 @@ from pfs.utils.fiberids import FiberIds
 class DotRoach(object):
     gfm = pd.DataFrame(FiberIds().data)
     sgfm = gfm[gfm.cobraId != FiberIds.MISSING_VALUE]
-    processTimeout = 25
+    processTimeout = 25 + 120
 
     def __init__(self, engine, dataRoot, maskFile, cams, keepMoving=False):
         """ Placeholder to handle DotRoach loop"""
