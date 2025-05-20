@@ -258,7 +258,7 @@ class DrpEngine:
             self.logger.exception(e)
             return
 
-        self.executor.pre_execute_qgraph(quantumGraph)
+        #self.executor.pre_execute_qgraph(quantumGraph)
 
         # setting long_log disgustingly.
         long_log = self.actor.actorConfig['lsstLog'].get('long_log', False)
