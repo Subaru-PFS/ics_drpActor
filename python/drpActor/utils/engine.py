@@ -12,8 +12,9 @@ from drpActor.utils.pfsVisit import PfsVisit
 from drpActor.utils.lsstLog import setLsstLongLog
 from drpActor.utils.tasks.ingest import IngestHandler
 from lsst.ctrl.mpexec import SeparablePipelineExecutor
-from lsst.pipe.base import Pipeline, ExecutionResources
+from lsst.pipe.base import Pipeline
 from drpActor.utils.chainedCollection import extend_collection_chain
+import multiprocessing as mp
 
 
 class DrpEngine:
@@ -57,7 +58,7 @@ class DrpEngine:
         self.ingestMode = ingestMode  # Ingestion mode (automatic or manual)
         self.inputCollection = inputCollection  # Name of the input collection
         self.outputCollection = outputCollection  # Name of the output collection
-        self.maxWorkers = maxWorkers   # Max number of subprocesses to run in parallel
+        self.maxWorkers = maxWorkers  # Max number of subprocesses to run in parallel
         self.doGenDetrendKey = doGenDetrendKey
         self.config = config  # Additional configuration parameters
         self.pfsVisits = {}  # Dictionary to store visits and their exposures
@@ -265,6 +266,7 @@ class DrpEngine:
         if long_log:
             setLsstLongLog(level)
 
+        self.logger.info(f"multiprocessing start method: {mp.get_start_method()}")
         # passing down num_proc for the most recent version.
         self.executor.run_pipeline(graph=quantumGraph, num_proc=self.maxWorkers)
 
