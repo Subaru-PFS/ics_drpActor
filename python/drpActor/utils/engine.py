@@ -41,14 +41,14 @@ class DrpEngine:
         Name of the output collection where results will be stored.
     pipelineYaml : str
         Path to the YAML configuration file for the reduction pipeline.
-    nCores : int
-        Number of cores allocated for parallel processing.
+    maxWorkers : int
+        Maximum number of subprocesses (quanta) to run in parallel.
     **config : dict
         Additional configuration parameters for the engine.
     """
 
     def __init__(self, actor, datastore, rawRun, pfsConfigRun, ingestMode,
-                 inputCollection, outputCollection, pipelineYaml, nCores, doGenDetrendKey=False, **config):
+                 inputCollection, outputCollection, pipelineYaml, maxWorkers, doGenDetrendKey=False, **config):
         """Initialize the DrpEngine with actor, datastore, collections, and settings."""
         self.actor = actor  # Reference to the actor for logging and configuration
         self.datastore = datastore  # Path to the data storage location
@@ -57,7 +57,7 @@ class DrpEngine:
         self.ingestMode = ingestMode  # Ingestion mode (automatic or manual)
         self.inputCollection = inputCollection  # Name of the input collection
         self.outputCollection = outputCollection  # Name of the output collection
-        self.nCores = nCores  # Number of CPU cores to allocate
+        self.maxWorkers = maxWorkers   # Max number of subprocesses to run in parallel
         self.doGenDetrendKey = doGenDetrendKey
         self.config = config  # Additional configuration parameters
         self.pfsVisits = {}  # Dictionary to store visits and their exposures
@@ -80,7 +80,7 @@ class DrpEngine:
                                                                                                          inputCollection,
                                                                                                          outputCollection,
                                                                                                          pipelineYaml,
-                                                                                                         nCores)
+                                                                                                         maxWorkers)
         self.condaEnv = os.environ.get("CONDA_DEFAULT_ENV")
 
     @property
@@ -125,7 +125,7 @@ class DrpEngine:
             self.logger.warning('Failed to load Butler: %s', self.actor.strTraceback(e))
             return None
 
-    def setupReducePipeline(self, datastore, inputCollection, chainedCollection, pipelineYaml, nCores):
+    def setupReducePipeline(self, datastore, inputCollection, chainedCollection, pipelineYaml, maxWorkers):
         """
         Set up the reduction pipeline and its executor.
 
@@ -139,7 +139,7 @@ class DrpEngine:
             Name of the output chained collection.
         pipelineYaml : str
             Path to the YAML file defining the reduction pipeline.
-        nCores : int
+        maxWorkers : int
             Number of cores for parallel processing.
 
         Returns
@@ -161,8 +161,7 @@ class DrpEngine:
         extend_collection_chain(datastore, chainedCollection, run, logger=self.logger)
 
         # Set up the pipeline executor for parallel processing
-        executor = SeparablePipelineExecutor(butler=butler, clobber_output=True,
-                                             resources=ExecutionResources(num_cores=nCores))
+        executor = SeparablePipelineExecutor(butler=butler, clobber_output=True)
 
         return pipeline, butler, executor, timestamp
 
@@ -267,7 +266,7 @@ class DrpEngine:
             setLsstLongLog(level)
 
         # passing down num_proc for the most recent version.
-        self.executor.run_pipeline(graph=quantumGraph, num_proc=self.nCores)
+        self.executor.run_pipeline(graph=quantumGraph, num_proc=self.maxWorkers)
 
     def startDotRoach(self, dataRoot, maskFile, cams, keepMoving=False):
         """Starting dotRoach loop."""
