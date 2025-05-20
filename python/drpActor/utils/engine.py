@@ -267,8 +267,7 @@ class DrpEngine:
             setLsstLongLog(level)
 
         # passing down num_proc for the most recent version.
-        kwargs = dict() if self.condaEnv == 'lsst-scipipe-7.0.1' else dict(num_proc=self.nCores)
-        self.executor.run_pipeline(graph=quantumGraph, **kwargs)
+        self.executor.run_pipeline(graph=quantumGraph, num_proc=self.nCores)
 
     def startDotRoach(self, dataRoot, maskFile, cams, keepMoving=False):
         """Starting dotRoach loop."""
