@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 
 from lsst.obs.base.ingest import RawIngestConfig
@@ -64,11 +65,16 @@ class IngestHandler(object):
             return
 
         pathList = [file.filepath for file in pfsVisit.exposureFiles]
-        self.engine.logger.info(f'Ingesting exposure files for visit {pfsVisit.visit}.')
+        totalBytes = sum(os.path.getsize(path) for path in pathList)
+        totalMB = totalBytes / 2 ** 20
+
+        self.engine.logger.info(f'Ingesting exposure files for visit {pfsVisit.visit} (total size: {totalMB:.2f} MB).')
         self.rawTask.run(pathList)
 
         for file in toIngest:
             file.initialize(self.engine.rawButler)
+
+        return totalMB
 
     def doIngest(self, pfsVisit, cmd=None):
         """Ingest both exposure files and the pfsConfig file for a visit."""
@@ -79,13 +85,14 @@ class IngestHandler(object):
         cmd = self.engine.actor.bcast if cmd is None else cmd
         startTime = time.time()
 
-        self.ingestExposureFiles(pfsVisit)
+        totalMB = self.ingestExposureFiles(pfsVisit)
         self.ingestPfsConfig(pfsVisit)
 
         returnCode = 0
         timing = time.time() - startTime
+        speed = totalMB / timing
 
         if not pfsVisit.isIngested:
-            cmd.warn(f'ingestStatus={pfsVisit.visit},{returnCode},FAILED,0')
+            cmd.warn(f'ingestStatus={pfsVisit.visit},{returnCode},FAILED,{timing:.1f},{speed:.1f}')
         else:
-            cmd.inform(f'ingestStatus={pfsVisit.visit},{returnCode},OK,{timing:.1f}')
+            cmd.inform(f'ingestStatus={pfsVisit.visit},{returnCode},OK,{timing:.1f},{speed:.1f}')
