@@ -48,7 +48,7 @@ def getWindowedFluxes(butler, dataId, fiberTrace, detectorMap, darkVariance=30, 
     maskVal = exp.mask.getPlaneBitMask(["SAT", "NO_DATA"])
     exp.mask.array[0:row0] = maskVal
     exp.mask.array[row1 + 1:] = maskVal
-    exp.image.array[exp.mask.array != 0] = np.NaN  # not 0; we're going to use np.nanmedian later
+    exp.image.array[exp.mask.array != 0] = np.nan  # not 0; we're going to use np.nanmedian later
 
     for amp in exp.getDetector():
         exp[amp.getRawBBox()].image.array -= np.nanmedian(exp[amp.getRawHorizontalOverscanBBox()].image.array)
@@ -58,7 +58,7 @@ def getWindowedFluxes(butler, dataId, fiberTrace, detectorMap, darkVariance=30, 
     exp.variance.array += darkVariance  # need a floor to the noise to reduce the b arm
 
     spectra = extractSpectra.run(exp.maskedImage, fiberTrace, detectorMap).spectra.toPfsArm(dataId)
-    spectra.flux[spectra.mask != 0] = np.NaN
+    spectra.flux[spectra.mask != 0] = np.nan
 
     df = pd.DataFrame(dict(flux=np.nanmedian(spectra.flux, axis=1), fiberId=spectra.fiberId))
     # calculating time.

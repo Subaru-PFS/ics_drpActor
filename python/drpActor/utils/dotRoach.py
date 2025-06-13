@@ -138,7 +138,7 @@ class DotRoach(object):
             # copy config as based structured file.
             newIter = self.maskFile.copy()
             # initialise flux to NaN
-            flux = np.ones(len(newIter)) * np.NaN
+            flux = np.ones(len(newIter)) * np.nan
             # fill with measured flux
             flux[fluxPerCobra.cobraId.to_numpy() - 1] = fluxPerCobra.flux.to_numpy()
             newIter['flux'] = flux
