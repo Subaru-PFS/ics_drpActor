@@ -62,7 +62,7 @@ class IngestHandler(object):
 
         if not toIngest:
             self.engine.logger.warning(f'Exposure files already ingested for visit {pfsVisit.visit}.')
-            return
+            return 0
 
         pathList = [file.filepath for file in pfsVisit.exposureFiles]
         totalBytes = sum(os.path.getsize(path) for path in pathList)
