@@ -16,7 +16,7 @@ class Silence:
 
     def __init__(self, engine):
         self.engine = engine
-        self.useSilentThread = self.engine.actor.actorConfig['genDetrendKey'].get('useSilentThread', False)
+        self.useSilentThread = self.engine.detrendCallback.get('useSilentThread', False)
 
     def diag(self, *args, **kwargs):
         """

@@ -1,6 +1,7 @@
 import datetime
 import logging
 import os
+from datetime import timezone
 from importlib import reload
 
 import drpActor.utils.dotRoach as dotRoach
@@ -30,39 +31,56 @@ class DrpEngine:
     datastore : str
         Path to the datastore where input/output collections are stored.
     rawRun : str
-        Identifier for the raw data run.
+        Run name for raw data.
     pfsConfigRun : str
-        Identifier for the PFS configuration run.
-    ingestMode : str
-        Mode for ingestion (e.g., automatic or manual).
+        Run name for pfsConfig.
     inputCollection : str
-        Name of the input collection used for reduction.
+        Input collection (chained or tagged) used for reduction.
     outputCollection : str
-        Name of the output collection where results will be stored.
+        Output collection where task products are written.
+    ingestMode : str
+        Ingestion mode ("link" or "copy").
     pipelineYaml : str
-        Path to the YAML configuration file for the reduction pipeline.
-    nCores : int
-        Number of cores allocated for parallel processing.
-    **config : dict
-        Additional configuration parameters for the engine.
+        Path to the pipeline YAML (tasks, configs, contracts).
+    numProc : int
+        Number of worker processes (quanta executed in parallel).
+    taskThreads : int
+        Threads per quantum (ExecutionResources.num_cores); usually keep at 1.
+    clobberOutput : bool
+        If True, allow overwriting existing outputs in the run.
+    lsstLog : dict
+        LSST logging configuration (e.g., {"level": 10, "long_log": False}).
+    detrendCallback : dict
+        Detrend-key callback configuration (e.g., {"activated": False, "useSilentThread": True,
+        "waitInterval": 1, "timeout": 90}).
+
+    Notes
+    -----
+    - `numProc` controls **process** parallelism at the executor level.
+    - `taskThreads` controls **per-quantum** threading; keep 1 unless explicitly tuned.
     """
 
-    def __init__(self, actor, datastore, rawRun, pfsConfigRun, ingestMode,
-                 inputCollection, outputCollection, pipelineYaml, nCores, doGenDetrendKey=False, **config):
-        """Initialize the DrpEngine with actor, datastore, collections, and settings."""
-        self.actor = actor  # Reference to the actor for logging and configuration
-        self.datastore = datastore  # Path to the data storage location
-        self.rawRun = rawRun  # Run ID for raw data
-        self.pfsConfigRun = pfsConfigRun  # Run ID for PFS configuration data
-        self.ingestMode = ingestMode  # Ingestion mode (automatic or manual)
-        self.inputCollection = inputCollection  # Name of the input collection
-        self.outputCollection = outputCollection  # Name of the output collection
-        self.nCores = nCores  # Number of CPU cores to allocate
-        self.doGenDetrendKey = doGenDetrendKey
-        self.config = config  # Additional configuration parameters
-        self.pfsVisits = {}  # Dictionary to store visits and their exposures
-        self.rawButler = None  # Butler instance for raw data handling
+    def __init__(self, actor, datastore, rawRun, pfsConfigRun, inputCollection, outputCollection, ingestMode,
+                 pipelineYaml, numProc, taskThreads, clobberOutput, lsstLog, detrendCallback):
+        """Lightweight init; heavy setup happens in dedicated methods."""
+        self.actor = actor  # actor-provided logger/config access
+        self.datastore = datastore  # butler repo root/URI
+        self.rawRun = rawRun  # run for raw exposures
+        self.pfsConfigRun = pfsConfigRun  # run for PFS config datasets
+        self.ingestMode = ingestMode  # ingestion policy selector
+        self.inputCollection = inputCollection  # read collection for pipeline inputs
+        self.outputCollection = outputCollection  # write collection for pipeline outputs
 
+        # execution/logging/callback options
+        self.numProc = numProc  # number of worker processes (process-level parallelism)
+        self.taskThreads = taskThreads
+        self.clobberOutput = clobberOutput
+        self.lsstLog = lsstLog
+        self.detrendCallback = detrendCallback
+        self.doGenDetrendKey = detrendCallback.get('activated', False)
+
+        self.pfsVisits = {}  # visitId -> list of exposure ids
+        self.rawButler = None  # butler for raw/ingest operations
         self.dotRoach = None
 
         # Enable auto-ingest and auto-reduction by default
@@ -72,7 +90,6 @@ class DrpEngine:
         # Initialize Butler instances and handlers
         self.rawButler = self.loadButler(self.rawRun)
         self.pfsConfigButler = self.loadButler(self.pfsConfigRun)
-        # just convenient for now.
         self.butler = Butler(self.datastore, collections=[self.inputCollection, self.outputCollection])
 
         self.ingestHandler = IngestHandler(self)
@@ -80,7 +97,7 @@ class DrpEngine:
                                                                                                          inputCollection,
                                                                                                          outputCollection,
                                                                                                          pipelineYaml,
-                                                                                                         nCores)
+                                                                                                         taskThreads)
         self.condaEnv = os.environ.get("CONDA_DEFAULT_ENV")
 
     @property
@@ -90,20 +107,40 @@ class DrpEngine:
 
     @classmethod
     def fromConfigFile(cls, actor):
-        """
-        Create a DrpEngine instance from the actor's configuration file.
+        """Create a DrpEngine instance from the actor's configuration file."""
+        # loading per-site config
+        siteConfig = actor.actorConfig[actor.site].get('engine')
 
-        Parameters
-        ----------
-        actor : object
-            The actor instance with access to the configuration file.
+        # getting datastore and collections
+        butler = siteConfig.get('butler')
+        datastore = butler.get('datastore')
+        rawRun = butler.get('raw')
+        pfsConfigRun = butler.get('pfsConfig')
+        inputCollection = butler.get('input')
+        outputCollection = butler.get('output')
 
-        Returns
-        -------
-        DrpEngine
-            A configured instance of the DrpEngine class.
-        """
-        return cls(actor, **actor.actorConfig[actor.site])
+        # ingest config
+        ingest = siteConfig.get('ingest')
+        ingestMode = ingest.get('mode')
+
+        # pipeline config
+        pipeline = siteConfig.get('pipeline')
+        pipelineYaml = pipeline.get('yaml')
+
+        # execution, numProc
+        execution = siteConfig.get('execution')
+        numProc = execution.get('numProc')
+        taskThreads = execution.get('taskThreads')
+        clobberOutput = execution.get('clobberOutput')
+
+        # logs and callbacks
+        lsstLog = siteConfig.get('lsstLog')
+        detrendCallback = siteConfig.get('detrendCallback')
+
+        return cls(actor, datastore=datastore, rawRun=rawRun, pfsConfigRun=pfsConfigRun,
+                   inputCollection=inputCollection, outputCollection=outputCollection, ingestMode=ingestMode,
+                   pipelineYaml=pipelineYaml, numProc=numProc, taskThreads=taskThreads, clobberOutput=clobberOutput,
+                   lsstLog=lsstLog, detrendCallback=detrendCallback)
 
     def loadButler(self, run):
         """
@@ -125,33 +162,38 @@ class DrpEngine:
             self.logger.warning('Failed to load Butler: %s', self.actor.strTraceback(e))
             return None
 
-    def setupReducePipeline(self, datastore, inputCollection, chainedCollection, pipelineYaml, nCores):
+    def setupReducePipeline(self, datastore, inputCollection, chainedCollection, pipelineYaml, taskThreads=1):
         """
         Set up the reduction pipeline and its executor.
 
         Parameters
         ----------
         datastore : str
-            Path to the datastore.
+            Path to the datastore (Butler repo root/URI).
         inputCollection : str
             Name of the input collection.
         chainedCollection : str
-            Name of the output chained collection.
+            Name of the output chained collection (base of the run).
         pipelineYaml : str
-            Path to the YAML file defining the reduction pipeline.
-        nCores : int
-            Number of cores for parallel processing.
+            Path (relative to $PFS_INSTDATA_DIR/config) to the pipeline YAML.
+        taskThreads : int, optional
+            Threads per quantum (ExecutionResources.num_cores). Does not control process-level parallelism.
 
         Returns
         -------
         tuple
-            A tuple containing the pipeline, Butler instance, and executor.
+            (pipeline, butler, executor, timestamp)
+
+        Notes
+        -----
+        - Use `self.numProc` later with `run_pipeline(..., num_proc=self.numProc)` to control process concurrency.
+        - `taskThreads` only affects intra-quantum threading; keep 1 when BLAS/OpenMP are pinned to 1.
         """
         # Load the reduction pipeline from YAML
         pipeline = Pipeline.fromFile(os.path.join(os.getenv("PFS_INSTDATA_DIR"), 'config', pipelineYaml))
 
         # Append a timestamp to the output collection name
-        timestamp = datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+        timestamp = datetime.datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
         run = os.path.join(chainedCollection, timestamp)
 
         # Initialize the Butler with the input and output collections
@@ -162,7 +204,7 @@ class DrpEngine:
 
         # Set up the pipeline executor for parallel processing
         executor = SeparablePipelineExecutor(butler=butler, clobber_output=True,
-                                             resources=ExecutionResources(num_cores=nCores))
+                                             resources=ExecutionResources(num_cores=taskThreads))
 
         return pipeline, butler, executor, timestamp
 
@@ -261,13 +303,13 @@ class DrpEngine:
         self.executor.pre_execute_qgraph(quantumGraph)
 
         # setting long_log disgustingly.
-        long_log = self.actor.actorConfig['lsstLog'].get('long_log', False)
-        level = self.actor.actorConfig['lsstLog'].get('level', logging.INFO)
+        long_log = self.lsstLog.get('long_log', False)
+        level = self.lsstLog.get('level', logging.INFO)
         if long_log:
             setLsstLongLog(level)
 
         # passing down num_proc for the most recent version.
-        self.executor.run_pipeline(graph=quantumGraph, num_proc=self.nCores)
+        self.executor.run_pipeline(graph=quantumGraph, num_proc=self.numProc)
 
     def startDotRoach(self, dataRoot, maskFile, cams, keepMoving=False):
         """Starting dotRoach loop."""

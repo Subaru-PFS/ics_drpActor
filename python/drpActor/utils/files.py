@@ -210,7 +210,7 @@ class PfsFile:
             return len(glob.glob(self.postIsrFilepath)) != 0
 
         start_time = time.time()
-        config = engine.actor.actorConfig['genDetrendKey']
+        config = engine.detrendCallback
 
         # Wait for the post-ISR image to become available or until timeout
         while not postIsrWasGenerated():
