@@ -202,6 +202,7 @@ class PfsFile:
         """
         # constructing the path only once.
         self.postIsrFilepath = self.getPostIsrFilepath(engine)
+        print(f'self.postIsrFilepath={self.postIsrFilepath}')
 
         def postIsrWasGenerated():
             """Check if the post-ISR image is available in the datastore."""
@@ -217,6 +218,7 @@ class PfsFile:
             if (time.time() - start_time) > config['timeout']:
                 break
 
+            print(self.dataId, ' not yet...')
             time.sleep(config['waitInterval'])
 
         # If post-ISR image found, trigger callback; otherwise, log a warning
