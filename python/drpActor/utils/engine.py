@@ -272,6 +272,7 @@ class DrpEngine:
         if pfsVisit.isIngested:
             if self.doAutoReduce:
                 # setting up a callback to be generated when the file is generated.
+                print(f'self.doGenDetrendKey={self.doGenDetrendKey}')
                 if self.doGenDetrendKey:
                     pfsVisit.setupDetrendCallback(self)
 
