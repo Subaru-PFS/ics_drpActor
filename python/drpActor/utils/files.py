@@ -218,7 +218,7 @@ class PfsFile:
             if (time.time() - start_time) > config['timeout']:
                 break
 
-            print(self.dataId, ' not yet...')
+            print(self.postIsrFilepath, ' not yet...')
             time.sleep(config['waitInterval'])
 
         # If post-ISR image found, trigger callback; otherwise, log a warning
