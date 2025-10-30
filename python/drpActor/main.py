@@ -89,8 +89,9 @@ class DrpActor(Actor):
 
         rootNightType, fname = os.path.split(filepath)
         rootNight, fitsType = os.path.split(rootNightType)
+        root, night = os.path.split(rootNight)
 
-        self.engine.newExposure(HxFile(rootNight, fitsType, fname))
+        self.engine.newExposure(HxFile(root, night, fname))
 
     def spsFileIds(self, keyvar):
         """ spsFileIds callback. """

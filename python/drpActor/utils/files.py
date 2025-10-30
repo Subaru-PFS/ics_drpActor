@@ -266,6 +266,10 @@ class HxFile(PfsFile):
 
     Inherits from `PfsFile` and provides specific attributes for Hx data.
     """
+    @property
+    def filepath(self):
+        """Return the full path to the CCD file within the 'sps' directory."""
+        return os.path.join(self.root, self.night, 'ramps', self.filename)
 
     @property
     def windowed(self):
