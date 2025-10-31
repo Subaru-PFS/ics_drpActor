@@ -15,6 +15,7 @@ from drpActor.utils.tasks.ingest import IngestHandler
 from lsst.ctrl.mpexec import SeparablePipelineExecutor
 from lsst.pipe.base import Pipeline, ExecutionResources
 from drpActor.utils.chainedCollection import extend_collection_chain
+from ics.utils.opdb import opDB
 
 
 class DrpEngine:
@@ -132,6 +133,10 @@ class DrpEngine:
         numProc = execution.get('numProc')
         taskThreads = execution.get('taskThreads')
         clobberOutput = execution.get('clobberOutput')
+
+        # opdb
+        opdbHost = siteConfig.get('opdb').get('host')
+        opDB.host = opdbHost
 
         # logs and callbacks
         lsstLog = siteConfig.get('lsstLog')
