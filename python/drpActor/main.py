@@ -53,6 +53,7 @@ class DrpActor(Actor):
 
             self.models['sps'].keyVarDict['fileIds'].addCallback(self.spsFileIds, callNow=False)
             self.models['iic'].keyVarDict['pfsConfig'].addCallback(self.newPfsConfig, callNow=False)
+            self.models['iic'].keyVarDict['sequence'].addCallback(self.iicSequenceCB, callNow=False)
 
             self.everConnected = True
 
@@ -103,7 +104,22 @@ class DrpActor(Actor):
         except ValueError:
             return
 
+        # delay slightly to enforce time ordering. 1-newExposure 2-newVisit 3-newVisitGroup
         reactor.callLater(0.2, self.engine.newVisit, visit)
+
+    def iicSequenceCB(self, keyvar):
+        """pfsConfigFinalized callback."""
+        if not self.engine:
+            return
+
+        try:
+            [sequenceId, groupId, sequenceType, name, comments, cmdStr, status, output] = keyvar.getValue(doRaise=False)
+        except ValueError:
+            return
+
+        if status=='finished':
+            # delay slightly to enforce time ordering. 1-newExposure 2-newVisit 3-newVisitGroup
+            reactor.callLater(0.5, self.engine.newVisitGroup, sequenceId)
 
     def newPfsConfig(self, keyvar):
         """pfsConfigFinalized callback."""

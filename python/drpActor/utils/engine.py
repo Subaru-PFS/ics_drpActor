@@ -62,16 +62,16 @@ class DrpEngine:
     """
 
     def __init__(self, actor, datastore, rawRun, pfsConfigRun, inputCollection, outputCollection, ingestMode,
-                 pipelineYaml, numProc, taskThreads, clobberOutput, lsstLog, detrendCallback):
+                 pipelineYaml, groupVisit, numProc, taskThreads, clobberOutput, lsstLog, detrendCallback):
         """Lightweight init; heavy setup happens in dedicated methods."""
         self.actor = actor  # actor-provided logger/config access
         self.datastore = datastore  # butler repo root/URI
         self.rawRun = rawRun  # run for raw exposures
         self.pfsConfigRun = pfsConfigRun  # run for PFS config datasets
-        self.ingestMode = ingestMode  # ingestion policy selector
         self.inputCollection = inputCollection  # read collection for pipeline inputs
         self.outputCollection = outputCollection  # write collection for pipeline outputs
-
+        self.ingestMode = ingestMode  # ingestion policy selector
+        self.groupVisit = groupVisit  # reduce visits as a group.
         # execution/logging/callback options
         self.numProc = numProc  # number of worker processes (process-level parallelism)
         self.taskThreads = taskThreads
@@ -127,6 +127,7 @@ class DrpEngine:
         # pipeline config
         pipeline = siteConfig.get('pipeline')
         pipelineYaml = pipeline.get('yaml')
+        groupVisit = pipeline.get('groupVisit', False)
 
         # execution, numProc
         execution = siteConfig.get('execution')
@@ -144,8 +145,8 @@ class DrpEngine:
 
         return cls(actor, datastore=datastore, rawRun=rawRun, pfsConfigRun=pfsConfigRun,
                    inputCollection=inputCollection, outputCollection=outputCollection, ingestMode=ingestMode,
-                   pipelineYaml=pipelineYaml, numProc=numProc, taskThreads=taskThreads, clobberOutput=clobberOutput,
-                   lsstLog=lsstLog, detrendCallback=detrendCallback)
+                   pipelineYaml=pipelineYaml, groupVisit=groupVisit, numProc=numProc, taskThreads=taskThreads,
+                   clobberOutput=clobberOutput, lsstLog=lsstLog, detrendCallback=detrendCallback)
 
     def loadButler(self, run):
         """
@@ -262,9 +263,69 @@ class DrpEngine:
 
         self.processPfsVisit(pfsVisit)
 
+    def newVisitGroup(self, sequenceId):
+        """
+        Resolve an IIC sequence into PFS visits and process them as a group.
+
+        The method queries opDB for all pfs_visit_id belonging to the given iic_sequence_id, verifies that each visit
+        exists in self.pfsVisits and is already ingested, then runs the reduction pipeline on the set. If any visit is
+        missing or not ingested, it logs a warning and returns without running the group reduction.
+
+        Note that by construction newVisitGroup is called after the end of newVisit, meaning that all related visits
+        should already be ingested.
+
+        Parameters
+        ----------
+        sequenceId : int
+            iic_sequence.iic_sequence_id to resolve into one or more pfs_visit_id entries.
+        """
+        try:
+            sequenceId = int(sequenceId)
+        except Exception:
+            self.logger.warning(f'Invalid sequenceId {sequenceId!r}')
+            return
+
+        sql = (
+            'SELECT pfs_visit_id '
+            'FROM visit_set INNER JOIN iic_sequence ON visit_set.iic_sequence_id = iic_sequence.iic_sequence_id '
+            f'WHERE visit_set.iic_sequence_id = {sequenceId}'
+        )
+        visitRows = opDB.fetchall(sql)  # expected like [(123,), (124,)] or [123, 124]
+
+        if not visitRows.any():
+            self.logger.warning(f'Could not match any pfs_visit_id for iic_sequence_id {sequenceId}')
+            return
+
+        # Normalize to a flat list of visit IDs
+        visitIds = [row[0] for row in visitRows]
+
+        pfsVisits = []
+        missing = []
+        notIngested = []
+
+        for vid in visitIds:
+            if vid in self.pfsVisits:
+                if self.pfsVisits[vid].isIngested:
+                    pfsVisits.append(self.pfsVisits[vid])
+                else:
+                    notIngested.append(vid)
+            else:
+                missing.append(vid)
+
+        if missing:
+            self.logger.warning(
+                f'visitGroup ({sequenceId}) : Could not match all related visits in PfsVisit dictionary; missing {missing}')
+            return
+
+        if notIngested:
+            self.logger.warning(f'visitGroup ({sequenceId}) : Following PfsVisit are not ingested {notIngested}')
+            return
+
+        self.processVisitGroup(pfsVisits)
+
     def processPfsVisit(self, pfsVisit):
         """
-        Ingest and reduce data for a PFS visit.
+        Ingest and reduce data for a single PFS visit, including optional callbacks and tools.
 
         Parameters
         ----------
@@ -274,7 +335,7 @@ class DrpEngine:
         if self.doAutoIngest:
             self.ingestHandler.doIngest(pfsVisit)
 
-        if pfsVisit.isIngested:
+        if pfsVisit.isIngested and not self.groupVisit:
             if self.doAutoReduce:
                 # setting up a callback to be generated when the file is generated.
                 if self.doGenDetrendKey:
@@ -289,6 +350,33 @@ class DrpEngine:
 
         # Just declaring that visit should be processed, just a placeholder for now.
         pfsVisit.finish()
+
+    def processVisitGroup(self, pfsVisits):
+        """
+        Reduce a group of already ingested PFS visits in one pipeline execution and finalize them.
+
+        The input visits are assumed to exist in self.pfsVisits and be marked ingested (validated by newVisitGroup).
+        The method logs the visit IDs, runs the reduction pipeline once with a "visit in (...)" WHERE clause, then
+        calls finish() on each PfsVisit regardless of pipeline outcome.
+
+        Parameters
+        ----------
+        pfsVisits : list[PfsVisit]
+            Visits to process together.
+
+        Notes
+        -----
+        - Process concurrency is controlled by self.numProc; per-quantum threading by self.taskThreads.
+        - Any pipeline exception is logged upstream; this method still attempts to finish all visits.
+        """
+
+        visitStr = ','.join(str(p.visit) for p in pfsVisits)
+
+        self.logger.info(f'processVisitGroup started on {visitStr}')
+        self.runReductionPipeline(where=f"visit in ({visitStr})")
+
+        for p in pfsVisits:
+            p.finish()
 
     def runReductionPipeline(self, where):
         """
