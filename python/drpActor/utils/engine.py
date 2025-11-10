@@ -369,6 +369,9 @@ class DrpEngine:
         - Process concurrency is controlled by self.numProc; per-quantum threading by self.taskThreads.
         - Any pipeline exception is logged upstream; this method still attempts to finish all visits.
         """
+        # not processing pfsVisits obviously.
+        if not self.groupVisit:
+            return
 
         visitStr = ','.join(str(p.visit) for p in pfsVisits)
 
