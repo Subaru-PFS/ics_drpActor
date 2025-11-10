@@ -42,7 +42,11 @@ class DrpEngine:
     ingestMode : str
         Ingestion mode ("link" or "copy").
     pipelineYaml : str
-        Path to the pipeline YAML (tasks, configs, contracts).
+        Path to the pipeline YAML (tasks/configs/contracts), typically under $PFS_INSTDATA_DIR/config.
+    groupVisit : bool
+        If True, reduce visits as groups; otherwise, reduce each visit independently.
+    fail_fast : bool
+        Abort pipeline execution on first failing quantum (equivalent to pipetask --fail-fast).
     numProc : int
         Number of worker processes (quanta executed in parallel).
     taskThreads : int
@@ -59,10 +63,11 @@ class DrpEngine:
     -----
     - `numProc` controls **process** parallelism at the executor level.
     - `taskThreads` controls **per-quantum** threading; keep 1 unless explicitly tuned.
+    - When fail_fast is True, the first task failure stops further execution in the current run.
     """
 
     def __init__(self, actor, datastore, rawRun, pfsConfigRun, inputCollection, outputCollection, ingestMode,
-                 pipelineYaml, groupVisit, numProc, taskThreads, clobberOutput, lsstLog, detrendCallback):
+                 pipelineYaml, groupVisit, fail_fast, numProc, taskThreads, clobberOutput, lsstLog, detrendCallback):
         """Lightweight init; heavy setup happens in dedicated methods."""
         self.actor = actor  # actor-provided logger/config access
         self.datastore = datastore  # butler repo root/URI
@@ -72,6 +77,8 @@ class DrpEngine:
         self.outputCollection = outputCollection  # write collection for pipeline outputs
         self.ingestMode = ingestMode  # ingestion policy selector
         self.groupVisit = groupVisit  # reduce visits as a group.
+        self.fail_fast = fail_fast  # run pipeline in fail_fast mode.
+
         # execution/logging/callback options
         self.numProc = numProc  # number of worker processes (process-level parallelism)
         self.taskThreads = taskThreads
@@ -127,7 +134,8 @@ class DrpEngine:
         # pipeline config
         pipeline = siteConfig.get('pipeline')
         pipelineYaml = pipeline.get('yaml')
-        groupVisit = pipeline.get('groupVisit', False)
+        groupVisit = pipeline.get('groupVisit')
+        fail_fast = pipeline.get('fail_fast')
 
         # execution, numProc
         execution = siteConfig.get('execution')
@@ -143,10 +151,21 @@ class DrpEngine:
         lsstLog = siteConfig.get('lsstLog')
         detrendCallback = siteConfig.get('detrendCallback')
 
-        return cls(actor, datastore=datastore, rawRun=rawRun, pfsConfigRun=pfsConfigRun,
-                   inputCollection=inputCollection, outputCollection=outputCollection, ingestMode=ingestMode,
-                   pipelineYaml=pipelineYaml, groupVisit=groupVisit, numProc=numProc, taskThreads=taskThreads,
-                   clobberOutput=clobberOutput, lsstLog=lsstLog, detrendCallback=detrendCallback)
+        return cls(actor,
+                   datastore=datastore,
+                   rawRun=rawRun,
+                   pfsConfigRun=pfsConfigRun,
+                   inputCollection=inputCollection,
+                   outputCollection=outputCollection,
+                   ingestMode=ingestMode,
+                   pipelineYaml=pipelineYaml,
+                   groupVisit=groupVisit,
+                   fail_fast=fail_fast,
+                   numProc=numProc,
+                   taskThreads=taskThreads,
+                   clobberOutput=clobberOutput,
+                   lsstLog=lsstLog,
+                   detrendCallback=detrendCallback)
 
     def loadButler(self, run):
         """
@@ -405,7 +424,7 @@ class DrpEngine:
             setLsstLongLog(level)
 
         # passing down num_proc for the most recent version.
-        self.executor.run_pipeline(graph=quantumGraph, num_proc=self.numProc)
+        self.executor.run_pipeline(graph=quantumGraph, num_proc=self.numProc, fail_fast=self.fail_fast)
 
     def startDotRoach(self, dataRoot, maskFile, cams, keepMoving=False):
         """Starting dotRoach loop."""
