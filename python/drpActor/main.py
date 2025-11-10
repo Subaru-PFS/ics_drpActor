@@ -4,7 +4,6 @@
 import argparse
 import logging
 import os
-import threading
 from importlib import reload
 
 import drpActor.utils.engine as drpEngine
@@ -117,7 +116,7 @@ class DrpActor(Actor):
         except ValueError:
             return
 
-        if status=='finished':
+        if status == 'finished':
             # delay slightly to enforce time ordering. 1-newExposure 2-newVisit 3-newVisitGroup
             reactor.callLater(0.5, self.engine.newVisitGroup, sequenceId)
 
