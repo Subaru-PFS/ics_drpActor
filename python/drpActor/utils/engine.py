@@ -423,6 +423,7 @@ class DrpEngine:
         if long_log:
             setLsstLongLog(level)
 
+        self.logger.info(f'run_pipeline where="{where}" num_proc={self.numProc} fail_fast={self.fail_fast}')
         # passing down num_proc for the most recent version.
         self.executor.run_pipeline(graph=quantumGraph, num_proc=self.numProc, fail_fast=self.fail_fast)
 
