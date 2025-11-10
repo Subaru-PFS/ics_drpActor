@@ -110,8 +110,8 @@ class DrpCmd(object):
                 rootNightType, fname = os.path.split(filepath)
                 rootNight, fitsType = os.path.split(rootNightType)
                 root, night = os.path.split(rootNight)
-                file = HxFile(rootNight, fitsType, fname) if fitsType == 'ramps' else CCDFile(root, night, fname)
-                engine.newExposure(file)
+                File = HxFile if fitsType == 'ramps' else CCDFile
+                engine.newExposure(File(root, night, fname))
 
             pfsVisit = engine.pfsVisits.get(visit)
             engine.ingestHandler.doIngest(pfsVisit, cmd=cmd)
