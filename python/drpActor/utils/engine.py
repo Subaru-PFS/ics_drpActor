@@ -305,8 +305,9 @@ class DrpEngine:
             return
 
         sql = (
-            'SELECT pfs_visit_id '
+            'SELECT sps_visit.pfs_visit_id '
             'FROM visit_set INNER JOIN iic_sequence ON visit_set.iic_sequence_id = iic_sequence.iic_sequence_id '
+            'INNER JOIN sps_visit ON visit_set.pfs_visit_id=sps_visit.pfs_visit_id '
             f'WHERE visit_set.iic_sequence_id = {sequenceId}'
         )
         visitRows = opDB.fetchall(sql)  # expected like [(123,), (124,)] or [123, 124]
