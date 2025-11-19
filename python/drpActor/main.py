@@ -118,7 +118,7 @@ class DrpActor(Actor):
 
         if status == 'finished':
             # delay slightly to enforce time ordering. 1-newExposure 2-newVisit 3-newVisitGroup
-            reactor.callLater(0.5, self.engine.newVisitGroup, sequenceId)
+            reactor.callLater(0.5, self.engine.newVisitGroup, sequenceId, groupId, sequenceType, name, comments, cmdStr, status, output)
 
     def newPfsConfig(self, keyvar):
         """pfsConfigFinalized callback."""
