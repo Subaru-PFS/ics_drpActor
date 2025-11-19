@@ -282,27 +282,48 @@ class DrpEngine:
 
         self.processPfsVisit(pfsVisit)
 
-    def newVisitGroup(self, sequenceId):
+    def newVisitGroup(self, sequenceId, groupId, sequenceType, name, comments, cmdStr, status, output):
         """
-        Resolve an IIC sequence into PFS visits and process them as a group.
+        Resolve an IIC sequence into PFS visits, check ingestion state, and optionally run group reduction.
 
         The method queries opDB for all pfs_visit_id belonging to the given iic_sequence_id, verifies that each visit
-        exists in self.pfsVisits and is already ingested, then runs the reduction pipeline on the set. If any visit is
-        missing or not ingested, it logs a warning and returns without running the group reduction.
+        exists in self.pfsVisits and is already ingested, then, if self.groupVisit is True, runs the reduction
+        pipeline on the set via processVisitGroup.
+
+        When running the group reduction, this method also adjusts the reduceExposure configuration on the fly:
+        reduceExposure.config.requireAdjustDetectorMap is set to True only for sequences with sequenceType equal
+        to 'scienceObject' and False otherwise, before calling processVisitGroup.
 
         Note that by construction newVisitGroup is called after the end of newVisit, meaning that all related visits
         should already be ingested.
 
         Parameters
         ----------
-        sequenceId : int
-            iic_sequence.iic_sequence_id to resolve into one or more pfs_visit_id entries.
+        sequenceId : int or str
+            iic_sequence.iic_sequence_id to resolve into one or more pfs_visit_id entries. Cast to int internally.
+        groupId : int or str
+            Group identifier from IIC; currently used for bookkeeping/logging (not interpreted here).
+        sequenceType : str
+            Type of the IIC sequence (e.g. 'scienceObject', 'arc', 'flat'); controls requireAdjustDetectorMap.
+        name : str
+            Human-readable sequence name from IIC.
+        comments : str
+            Free-form comment string associated with the sequence.
+        cmdStr : str
+            Original IIC command string that created the sequence.
+        status : str
+            Sequence status as reported by IIC (e.g. 'DONE', 'FAILED'); currently not interpreted here.
+        output : dict or Any
+            Additional output payload from IIC; currently passed through unchanged.
         """
         try:
             sequenceId = int(sequenceId)
         except Exception:
             self.logger.warning(f'Invalid sequenceId {sequenceId!r}')
             return
+
+        self.logger.info(f'New iic_sequence sequenceId={sequenceId} groupId={groupId} '
+                         f'sequenceType={sequenceType} name={name!r} comments={comments!r}')
 
         sql = (
             'SELECT sps_visit.pfs_visit_id '
@@ -341,7 +362,11 @@ class DrpEngine:
             self.logger.warning(f'visitGroup ({sequenceId}) : Following PfsVisit are not ingested {notIngested}')
             return
 
-        self.processVisitGroup(pfsVisits)
+        if self.groupVisit:
+            # adjusting requireAdjustDetectorMap on the fly, only forcing it for scienceObject.
+            requireAdjustDetectorMap = str(sequenceType) == 'scienceObject'
+            self.addConfigOverride('reduceExposure', key='requireAdjustDetectorMap', value=requireAdjustDetectorMap)
+            self.processVisitGroup(pfsVisits)
 
     def processPfsVisit(self, pfsVisit):
         """
@@ -389,10 +414,6 @@ class DrpEngine:
         - Process concurrency is controlled by self.numProc; per-quantum threading by self.taskThreads.
         - Any pipeline exception is logged upstream; this method still attempts to finish all visits.
         """
-        # not processing pfsVisits obviously.
-        if not self.groupVisit:
-            return
-
         visitStr = ','.join(str(p.visit) for p in pfsVisits)
 
         self.logger.info(f'processVisitGroup started on {visitStr}')
@@ -427,6 +448,11 @@ class DrpEngine:
         self.logger.info(f'run_pipeline where="{where}" num_proc={self.numProc} fail_fast={self.fail_fast}')
         # passing down num_proc for the most recent version.
         self.executor.run_pipeline(graph=quantumGraph, num_proc=self.numProc, fail_fast=self.fail_fast)
+
+    def addConfigOverride(self, label, key, value):
+        """Convenience wrapper to override a pipeline config key and log the change."""
+        self.reducePipeline.addConfigOverride(label, key=key, value=value)
+        self.logger.info(f'reducePipeline.addConfigOverride:{label} {key}={value}')
 
     def startDotRoach(self, dataRoot, maskFile, cams, keepMoving=False):
         """Starting dotRoach loop."""
