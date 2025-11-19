@@ -29,7 +29,7 @@ class DrpCmd(object):
             ('status', '', self.status),
 
             ('ingest', '<visit> [<spectrograph>] [<arm>] [@(newEngine)]', self.ingest),
-            ('reduce', '<where>', self.reduce),
+            ('reduce', '<where> [@(skipRequireAdjustDetectorMap)]', self.reduce),
 
             ('startDotRoach', '<dataRoot> <maskFile> <cams> [@(keepMoving)]', self.startDotRoach),
             ('stopDotRoach', '', self.stopDotRoach),
@@ -123,8 +123,10 @@ class DrpCmd(object):
         cmdKeys = cmd.cmd.keywords
 
         where = cmdKeys["where"].values[0]
+        requireAdjustDetectorMap = 'skipRequireAdjustDetectorMap' not in cmdKeys
 
         engine = self.getEngine(cmdKeys)
+        engine.addConfigOverride('reduceExposure', key='requireAdjustDetectorMap', value=requireAdjustDetectorMap)
         engine.runReductionPipeline(where=where)
 
         cmd.finish()
