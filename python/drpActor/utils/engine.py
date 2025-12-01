@@ -364,8 +364,15 @@ class DrpEngine:
 
         if self.groupVisit:
             # adjusting requireAdjustDetectorMap on the fly, only forcing it for scienceObject.
-            requireAdjustDetectorMap = str(sequenceType) == 'scienceObject'
+            if str(sequenceType) == 'scienceObject':
+                requireAdjustDetectorMap = True
+                quickCDS = False
+            else:
+                requireAdjustDetectorMap = False
+                quickCDS = True
+
             self.addConfigOverride('reduceExposure', key='requireAdjustDetectorMap', value=requireAdjustDetectorMap)
+            self.addConfigOverride('isr', key='h4.quickCDS', value=quickCDS)
             self.processVisitGroup(pfsVisits)
 
     def processPfsVisit(self, pfsVisit):
