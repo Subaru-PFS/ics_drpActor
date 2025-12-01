@@ -29,7 +29,7 @@ class DrpCmd(object):
             ('status', '', self.status),
 
             ('ingest', '<visit> [<spectrograph>] [<arm>] [@(newEngine)]', self.ingest),
-            ('reduce', '<where> [@(skipRequireAdjustDetectorMap)]', self.reduce),
+            ('reduce', '<where> [@(skipRequireAdjustDetectorMap)] [@(quickCDS)]', self.reduce),
 
             ('startDotRoach', '<dataRoot> <maskFile> <cams> [@(keepMoving)]', self.startDotRoach),
             ('stopDotRoach', '', self.stopDotRoach),
@@ -124,9 +124,12 @@ class DrpCmd(object):
 
         where = cmdKeys["where"].values[0]
         requireAdjustDetectorMap = 'skipRequireAdjustDetectorMap' not in cmdKeys
+        quickCDS = 'quickCDS' in cmdKeys
 
         engine = self.getEngine(cmdKeys)
-        engine.addConfigOverride('reduceExposure', key='requireAdjustDetectorMap', value=requireAdjustDetectorMap)
+        configOverride = dict(reduceExposure={'requireAdjustDetectorMap': requireAdjustDetectorMap},
+                              isr={'h4.quickCDS': quickCDS})
+        engine.addConfigOverride(configOverride)
         engine.runReductionPipeline(where=where)
 
         cmd.finish()
