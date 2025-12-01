@@ -76,6 +76,7 @@ class DrpEngine:
         self.inputCollection = inputCollection  # read collection for pipeline inputs
         self.outputCollection = outputCollection  # write collection for pipeline outputs
         self.ingestMode = ingestMode  # ingestion policy selector
+        self.pipelineYaml = pipelineYaml  # pipeline yaml file path
         self.groupVisit = groupVisit  # reduce visits as a group.
         self.fail_fast = fail_fast  # run pipeline in fail_fast mode.
 
@@ -90,6 +91,7 @@ class DrpEngine:
         self.pfsVisits = {}  # visitId -> list of exposure ids
         self.rawButler = None  # butler for raw/ingest operations
         self.dotRoach = None
+        self.configOverride = None  # no config override yet.
 
         # Enable auto-ingest and auto-reduction by default
         self.doAutoIngest = True
@@ -364,15 +366,14 @@ class DrpEngine:
 
         if self.groupVisit:
             # adjusting requireAdjustDetectorMap on the fly, only forcing it for scienceObject.
-            if str(sequenceType) == 'scienceObject':
-                requireAdjustDetectorMap = True
-                quickCDS = False
-            else:
-                requireAdjustDetectorMap = False
-                quickCDS = True
+            requireAdjustDetectorMap = str(sequenceType) == 'scienceObject'
+            # pretty sure that overriding this is not actually the right design but okay for now.
+            quickCDS = str(sequenceType) not in ['scienceObject', 'masterDarks']
 
-            self.addConfigOverride('reduceExposure', key='requireAdjustDetectorMap', value=requireAdjustDetectorMap)
-            self.addConfigOverride('isr', key='h4.quickCDS', value=quickCDS)
+            configOverride = dict(reduceExposure={'requireAdjustDetectorMap': requireAdjustDetectorMap},
+                                  isr={'h4.quickCDS': quickCDS})
+            self.addConfigOverride(configOverride)
+
             self.processVisitGroup(pfsVisits)
 
     def processPfsVisit(self, pfsVisit):
@@ -456,10 +457,26 @@ class DrpEngine:
         # passing down num_proc for the most recent version.
         self.executor.run_pipeline(graph=quantumGraph, num_proc=self.numProc, fail_fast=self.fail_fast)
 
-    def addConfigOverride(self, label, key, value):
-        """Convenience wrapper to override a pipeline config key and log the change."""
-        self.reducePipeline.addConfigOverride(label, key=key, value=value)
-        self.logger.info(f'reducePipeline.addConfigOverride:{label} {key}={value}')
+    def addConfigOverride(self, configOverride):
+        """Apply config overrides to the pipeline, creating a new run if they differ from the last ones."""
+        needNewRun = self.configOverride is not None and self.configOverride != configOverride
+
+        if needNewRun:
+            self.logger.info('Config override changed; creating new reduction run.')
+            (self.reducePipeline, self.reduceButler,
+             self.executor, self.timestamp) = self.setupReducePipeline(self.datastore,
+                                                                       self.inputCollection,
+                                                                       self.outputCollection,
+                                                                       self.pipelineYaml,
+                                                                       self.taskThreads)
+        # just logging and setting override whenever it's actually necessary.
+        if self.configOverride != configOverride:
+            for label, cfg in configOverride.items():
+                for key, value in cfg.items():
+                    self.reducePipeline.addConfigOverride(label, key=key, value=value)
+                    self.logger.info(f'reducePipeline.addConfigOverride:{label} {key}={value}')
+
+            self.configOverride = configOverride
 
     def startDotRoach(self, dataRoot, maskFile, cams, keepMoving=False):
         """Starting dotRoach loop."""
