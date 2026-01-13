@@ -369,9 +369,12 @@ class DrpEngine:
             requireAdjustDetectorMap = str(sequenceType) == 'scienceObject'
             # pretty sure that overriding this is not actually the right design but okay for now.
             quickCDS = str(sequenceType) not in ['scienceObject', 'masterDarks']
+            doNormalizeChiRms = str(sequenceType) != 'darks'
 
             configOverride = dict(reduceExposure={'requireAdjustDetectorMap': requireAdjustDetectorMap},
-                                  isr={'h4.quickCDS': quickCDS})
+                                  isr={'h4.quickCDS': quickCDS},
+                                  cosmicray={'doNormalizeChiRms': doNormalizeChiRms})
+
             self.addConfigOverride(configOverride)
 
             self.processVisitGroup(pfsVisits)
