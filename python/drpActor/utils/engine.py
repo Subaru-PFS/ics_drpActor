@@ -358,7 +358,11 @@ class DrpEngine:
         if missing:
             self.logger.warning(
                 f'visitGroup ({sequenceId}) : Could not match all related visits in PfsVisit dictionary; missing {missing}')
-            return
+
+            class fake:
+                def __init__(self, visit):
+                    self.visit = visit
+            pfsVisits.extend([fake(v) for v in missing])
 
         if notIngested:
             self.logger.warning(f'visitGroup ({sequenceId}) : Following PfsVisit are not ingested {notIngested}')
