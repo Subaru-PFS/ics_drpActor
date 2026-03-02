@@ -126,7 +126,7 @@ class DrpActor(Actor):
             return
 
         try:
-            [designId, visit, dateDir, ra, dec, pa, designName, designId0, variant, instStatus] = keyvar.getValue()
+            [designId, visit, visit0, dateDir, ra, dec, pa, designName, designId0, variant, instStatus] = keyvar.getValue()
         except ValueError:
             return
 
