@@ -476,6 +476,10 @@ class DrpEngine:
         if self.configOverride != configOverride:
             for label, cfg in configOverride.items():
                 for key, value in cfg.items():
+                    # can't add config override for non-defined task.
+                    if label not in self.reducePipeline.task_labels:
+                        continue
+
                     self.reducePipeline.addConfigOverride(label, key=key, value=value)
                     self.logger.info(f'reducePipeline.addConfigOverride:{label} {key}={value}')
 
