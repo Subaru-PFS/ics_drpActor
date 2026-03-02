@@ -123,6 +123,13 @@ class DrpCmd(object):
         cmdKeys = cmd.cmd.keywords
 
         where = cmdKeys["where"].values[0]
+
+        # Allow users to write string literals with double quotes inside the actor-quoted where:
+        # where="'arm in (\"b\", \"r\")'"
+        # Butler requires single-quoted strings, so convert "..." -> '...'.
+        if '"' in where:
+            where = where.replace('"', "'")
+
         requireAdjustDetectorMap = 'skipRequireAdjustDetectorMap' not in cmdKeys
         quickCDS = 'quickCDS' in cmdKeys
 
