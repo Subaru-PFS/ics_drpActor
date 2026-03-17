@@ -1,89 +1,43 @@
 import logging
 import multiprocessing
-import os
-import shutil
 import time
 
 import drpActor.utils.extractFlux as extractFlux
-import numpy as np
 import pandas as pd
 from pfs.datamodel.pfsConfig import FiberStatus
 from pfs.utils.fiberids import FiberIds
 
 
 class DotRoach(object):
-    gfm = pd.DataFrame(FiberIds().data)
-    sgfm = gfm[gfm.cobraId != FiberIds.MISSING_VALUE]
     processTimeout = 25 + 120
 
-    def __init__(self, engine, dataRoot, maskFile, cams, keepMoving=False):
-        """ Placeholder to handle DotRoach loop"""
+    def __init__(self, engine, cams):
+        """Placeholder to handle DotRoach loop."""
         self.engine = engine
         self.processManager = multiprocessing.Manager()
-
-        self.pathDict = self.initialise(dataRoot)
-        self.maskFile = pd.read_csv(maskFile, index_col=0).sort_values('cobraId')
-        self.didOvershoot = self.allStoppedMaskFile()
         self.cams = cams
-        self.keepMoving = keepMoving
 
         self.normFactor = None
-        self.maxIterInPhase1 = -1
-        self.phase = 'phase1'
-
+        self.currentVisit = None
         self.pfsConfig = None
         self.detectorMaps = dict()
         self.fiberTraces = dict()
 
     @property
     def monitoringFiberIds(self):
-        # bitMask 0, means at Home. disabled / broken should already be at home.
+        # BROKENCOBRA fibers are parked at home — use them as lamp monitors.
         atHome = self.pfsConfig[self.pfsConfig.fiberStatus == FiberStatus.BROKENCOBRA].fiberId
         return list(atHome)
 
-    @property
-    def strategy(self):
-        return self.phase[:6]
-
     def run(self, pfsVisit):
         """Run method using pfsVisit."""
-        # filtering only selected cams in dotRoach.
-        relevantFiles = [file for file in pfsVisit.exposureFiles if file.cam in self.cams]
-
+        relevantFiles = [f for f in pfsVisit.exposureFiles if f.cam in self.cams]
         if not relevantFiles:
             return
-
-        self.runAway(relevantFiles)
-
-    def loadAllIterations(self):
-        """Load allIterations dataframe."""
-        return pd.read_csv(self.pathDict['allIterations'], index_col=0)
-
-    def initialise(self, dataRoot):
-        """Create output directory and files"""
-        # construct path
-        maskFilesRoot = os.path.join(dataRoot, 'maskFiles')
-        outputPath = os.path.join(dataRoot, 'allIterations.csv')
-
-        # directory shouldn't exist, unless something as been ended prematurely.
-        if not os.path.isdir(dataRoot):
-            # creating repo
-            for newDir in [dataRoot, maskFilesRoot]:
-                os.mkdir(newDir)
-
-            # initialising output file.
-            pd.DataFrame([]).to_csv(outputPath)
-
-        return dict(dataRoot=dataRoot, allIterations=outputPath, maskFilesRoot=maskFilesRoot)
-
-    def allStoppedMaskFile(self):
-        """Build final move mask."""
-        maskFile = self.maskFile.copy()
-        maskFile['bitMask'] = np.zeros(len(maskFile)).astype('int')
-        return maskFile
+        self.runAway(pfsVisit.visit, relevantFiles)
 
     def collectFiberData(self, files):
-        """Retrieve pfsArm from butler and return flux estimation for each fiber."""
+        """Retrieve raw exposures from butler and return flux per fiber."""
         fluxPerFiber = self.processManager.list()
         jobs = []
 
@@ -91,10 +45,9 @@ class DotRoach(object):
             flux = extractFlux.getWindowedFluxes(exp, dataId, fiberTrace=fiberTrace, detectorMap=detectorMap)
             fluxPerFiber.append(flux)
 
-        # load fiberTraces on first iteration presumably.
+        # Load fiberTraces on first iteration.
         if not self.fiberTraces:
             self.pfsConfig = self.engine.butler.get('pfsConfig', files[0].dataId)
-
             for file in files:
                 self.getFiberTrace(file.dataId)
 
@@ -112,194 +65,75 @@ class DotRoach(object):
         return pd.concat(fluxPerFiber).groupby('fiberId').sum().reset_index()
 
     def getFiberTrace(self, dataId):
-        """Retrieve fiberTrace"""
+        """Retrieve fiberTrace, cached per camera."""
         cameraKey = dataId['spectrograph'], dataId['arm']
 
         if cameraKey not in self.fiberTraces:
             logging.info(f'making fiberTrace for {cameraKey}')
-            fiberProfiles = self.engine.butler.get("fiberProfiles", dataId)
-            detectorMap = self.engine.butler.get("detectorMap_calib", dataId)
+            fiberProfiles = self.engine.butler.get('fiberProfiles', dataId)
+            # detectorMap = self.engine.butler.get('detectorMap_calib', dataId)
+            # I want to use an adjusted detectorMap instead.
+            detectorMap = self.engine.butler.get('detectorMap', dataId)
             self.detectorMaps[cameraKey] = detectorMap
             self.fiberTraces[cameraKey] = fiberProfiles.makeFiberTracesFromDetectorMap(detectorMap)
 
         return self.fiberTraces[cameraKey], self.detectorMaps[cameraKey]
 
-    def runAway(self, files):
-        """Append new iteration to dataset."""
-
-        def fiberToCobra(fluxPerFiber):
-            """Convert flux per fiber as flux per cobra."""
-            fluxPerCobra = DotRoach.gfm.set_index('fiberId').loc[fluxPerFiber.fiberId][['cobraId']].copy()
-            fluxPerCobra['flux'] = fluxPerFiber.flux.to_numpy()
-            fluxPerCobra = fluxPerCobra[fluxPerCobra.cobraId != FiberIds.MISSING_VALUE]
-            return fluxPerCobra.reset_index().sort_values('cobraId')
-
-        def buildIterData(fluxPerCobra):
-            """Build an iteration file with an entry for each cobra."""
-            # copy config as based structured file.
-            newIter = self.maskFile.copy()
-            # initialise flux to NaN
-            flux = np.ones(len(newIter)) * np.nan
-            # fill with measured flux
-            flux[fluxPerCobra.cobraId.to_numpy() - 1] = fluxPerCobra.flux.to_numpy()
-            newIter['flux'] = flux
-
-            return newIter
-
-        def toMaskFile(lastIter):
-            """Convert last iteration to cobra maskFile."""
-            maskFile = self.maskFile.copy()
-            maskFile['bitMask'] = lastIter.keepMoving.to_numpy().astype('int')
-            return maskFile
-
-        # build dataset with flux measurement for all cobras.
-        fluxPerFiber = self.collectFiberData(files)
-        fluxPerCobra = fiberToCobra(fluxPerFiber)
-        newIter = buildIterData(fluxPerCobra)
-
-        # adding visit
-        [visit] = list(set([file.visit for file in files]))
-        newIter['visit'] = visit
-
-        # compute normalized flux using monitoring fibers.
-        newIter['fluxNorm'] = self.fluxNormalized(newIter)
-
-        # update output file with the new iteration data
-        allIterations = self.process(newIter)
-        allIterations.to_csv(self.pathDict['allIterations'])
-
-        # export maskFiles for fps
-        nIter = allIterations.nIter.max()
-        lastIter = allIterations.query(f'nIter=={nIter}').sort_values('cobraId')
-        maskFile = toMaskFile(lastIter)
-        maskFile.to_csv(os.path.join(self.pathDict['maskFilesRoot'], f'iter{nIter}.csv'))
-
-    def fluxNormalized(self, newIter):
-        """Return flux normalized by the lamp response."""
-
-        def fluxFromMonitoringFibers():
-            """Calculate flux from homed/disabled cobras."""
-            monitoring = newIter.set_index('fiberId').reindex(self.monitoringFiberIds).dropna().flux.sum()
-            # setting flux to 1 in case I have actually no monitoring fibers available.
-            monitoring = 1 if not monitoring else monitoring
-            return monitoring
-
-        lampResponse = fluxFromMonitoringFibers()
+    def fluxNormalized(self, fluxPerFiber):
+        """Return scalar normalization factor correcting for lamp response drift."""
+        lampResponse = fluxPerFiber.set_index('fiberId').reindex(self.monitoringFiberIds).dropna().flux.sum()
+        lampResponse = float(lampResponse) if lampResponse else 1.0
 
         if self.normFactor is None:
             self.normFactor = lampResponse
 
-        normFactor = self.normFactor / lampResponse
-        return newIter.flux.to_numpy() * normFactor
+        return self.normFactor / lampResponse
 
-    def process(self, newIter):
-        """Process new iteration, namely decide which cobras need to stop moving."""
+    def runAway(self, visit, files):
+        """Extract flux, normalize, and bulk-insert into opdb."""
+        self.currentVisit = visit
 
-        def shouldIStop(fluxRatio, goalInPhase1=0.003):
-            """"""
-            gradient = fluxRatio[-1] - fluxRatio[-2]
-            gain = gradient / fluxRatio[-1]
-            ratioInPhase1 = fluxRatio[:(self.maxIterInPhase1 + 1)]  # per python excluding upper boundary.
+        fluxPerFiber = self.collectFiberData(files)
+        normFactor = self.fluxNormalized(fluxPerFiber)
 
-            if self.strategy == 'phase1' and fluxRatio[-1] < goalInPhase1:
-                flag = 1
-            elif self.strategy == 'phase2' and (gain < 0.05 and fluxRatio[-1] < np.min(ratioInPhase1)):
-                flag = 1
-            elif fluxRatio[-2] < 0.5 and gradient > 0:
-                flag = 2
-            else:
-                flag = 0
+        # Drop engineering fibers — only cobras go to the DB.
+        fluxPerCobra = fluxPerFiber[fluxPerFiber.cobraId != FiberIds.MISSING_VALUE].copy()
+        fluxPerCobra['flux_norm'] = fluxPerCobra.flux.to_numpy() * normFactor
+        fluxPerCobra['pfs_visit_id'] = visit
+        fluxPerCobra = fluxPerCobra.rename(columns={'cobraId': 'cobra_id'})[
+            ['pfs_visit_id', 'cobra_id', 'flux', 'flux_norm']]
 
-            return flag
+        self.engine.opdb.insert('dot_roach_flux', fluxPerCobra)
 
-        allIterations = self.loadAllIterations()
-
-        # first iteration
-        if allIterations.empty:
-            newIter['keepMoving'] = self.maskFile.bitMask.astype('bool')
-            newIter['nIter'] = int(0)
-            return newIter
-
-        # We do not have any criteria left, so force keepMoving for now.
-        keepMoving = np.ones(len(newIter), dtype='bool')
-
-        # logical and with previous iteration
-        lastIter = allIterations.query(f'visit=={allIterations.visit.max()}').sort_values('cobraId')
-
-        prevState = lastIter.keepMoving
-        keepMoving = np.logical_and(prevState, keepMoving).to_numpy()
-        nIter = lastIter.nIter.to_numpy() + 1
-
-        for cobraId, df in allIterations.groupby('cobraId'):
-            df = df.sort_values('nIter')
-            new = newIter.set_index('cobraId').loc[cobraId]
-            iCob = cobraId - 1
-            cobraStopped = not keepMoving[iCob]
-            if cobraStopped:
-                continue
-
-            fluxCobra = np.append(df.fluxNorm.to_numpy(), new.fluxNorm)
-            fluxRatio = fluxCobra / fluxCobra[0]
-            flag = shouldIStop(fluxRatio)
-
-            self.didOvershoot.bitMask[iCob] = int(flag == 2)
-            keepMoving[iCob] = flag == 0
-
-        if self.phase == 'phase1->phase2':
-            self.maxIterInPhase1 = max(nIter)
-            self.phase = 'phase2'
-            keepMoving = self.didOvershoot.bitMask.astype('bool').to_numpy()
-
-        elif self.phase == 'phase2->phase3':
-            self.phase = 'phase3'
-            keepMoving = self.didOvershoot.bitMask.astype('bool').to_numpy()
-
-        newIter['keepMoving'] = keepMoving
-        newIter['nIter'] = nIter
-
-        # append to current allIterations
-        allIterations = pd.concat([allIterations, newIter]).reset_index(drop=True)
-        return allIterations
-
-    def finish(self):
-        """ """
-        rootDir, __ = os.path.split(self.pathDict["dataRoot"])
-        try:
-            # renaming current to dedicated path.
-            visitMin = self.loadAllIterations().visit.min()
-            os.rename(self.pathDict["dataRoot"], os.path.join(rootDir, f'v{str(visitMin).zfill(6)}'))
-        except:
-            # no visit has been analysed you can remove it.
-            shutil.rmtree(self.pathDict["dataRoot"])
-
-    def phase2(self):
-        """"""
-        self.phase = 'phase1->phase2'
-
-    def phase3(self):
-        """"""
-        self.phase = 'phase2->phase3'
-
-    def waitForResult(self, iteration):
-        """Wait for maskFile to be created."""
-        overHead = 30 if iteration == 0 else 0
-        iterFile = os.path.join(self.pathDict['maskFilesRoot'], f'iter{iteration}.csv')
+    def waitForResult(self):
+        """Wait until dot_roach_flux rows for the current visit appear in opdb."""
         start = time.time()
 
-        while not os.path.isfile(iterFile):
-            now = time.time()
+        while True:
+            count = self.engine.opdb.query_scalar(
+                'SELECT COUNT(*) FROM dot_roach_flux WHERE pfs_visit_id = :visit_id',
+                params={'visit_id': self.currentVisit},
+            )
+            if count:
+                return
 
-            if (now - start) > (DotRoach.processTimeout + overHead):
-                raise RuntimeError(f'no results after {round(now - start, 1)}')
+            now = time.time()
+            if (now - start) > DotRoach.processTimeout:
+                raise RuntimeError(
+                    f'no dot_roach_flux results for visit={self.currentVisit} after {round(now - start, 1)}s'
+                )
 
             time.sleep(0.1)
 
     def status(self, cmd):
-        """ """
-        cmd.inform(f"dotRoach={self.pathDict['allIterations']}")
+        """Report status of the most recent dotRoach visit."""
+        df = self.engine.opdb.query_dataframe(
+            'SELECT * FROM dot_roach_flux WHERE pfs_visit_id = '
+            '(SELECT MAX(pfs_visit_id) FROM dot_roach_flux)'
+        )
+        if df.empty:
+            cmd.inform('text="no dotRoach data available"')
+            return
 
-        allIterations = self.loadAllIterations()
-        lastVisit = allIterations.visit.max()
-        lastIter = allIterations.query(f'visit=={lastVisit}').sort_values('cobraId')
-
-        cmd.inform(f'text="visit={lastVisit}, nCobraKeepMoving={len(lastIter[lastIter.keepMoving])}"')
+        visit = int(df.pfs_visit_id.iloc[0])
+        cmd.inform(f'text="visit={visit}, nCobras={len(df)}"')

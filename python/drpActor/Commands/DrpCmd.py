@@ -2,13 +2,10 @@ import glob
 import os
 from importlib import reload
 
-import drpActor.utils.dotRoach as dotRoach
 import drpActor.utils.drpParsing as drpParsing
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
 from drpActor.utils.files import CCDFile, HxFile, PfsConfigFile
-
-reload(dotRoach)
 
 
 class DrpCmd(object):
@@ -31,11 +28,9 @@ class DrpCmd(object):
             ('ingest', '<visit> [<spectrograph>] [<arm>] [@(newEngine)]', self.ingest),
             ('reduce', '<where> [@(skipRequireAdjustDetectorMap)] [@(quickCDS)]', self.reduce),
 
-            ('startDotRoach', '<dataRoot> <maskFile> <cams> [@(keepMoving)]', self.startDotRoach),
+            ('startDotRoach', '<cams>', self.startDotRoach),
             ('stopDotRoach', '', self.stopDotRoach),
-            ('processDotRoach', '<iteration>', self.processDotRoach),
-            ('dotRoach', '@phase2', self.dotRoachPhase2),
-            ('dotRoach', '@phase3', self.dotRoachPhase3),
+            ('processDotRoach', '', self.processDotRoach),
 
         ]
 
@@ -43,7 +38,6 @@ class DrpCmd(object):
         self.keys = keys.KeysDictionary("drp_drp", (1, 1),
                                         keys.Key("rerun", types.String(), help="rerun drp folder"),
                                         keys.Key("filepath", types.String(), help="Raw FITS File path"),
-                                        keys.Key("iteration", types.Int(), help="dotRoach iteration"),
                                         keys.Key("visit", types.String(),
                                                  help="visit argument, same parsing as 2d drp pipeline "
                                                       "eg visit=1..10 or visit=101^102"),
@@ -53,10 +47,6 @@ class DrpCmd(object):
                                         keys.Key("arm", types.String(),
                                                  help="optional arm argument, same parsing as 2d drp pipeline "
                                                       "eg arm=b^r"),
-                                        keys.Key("dataRoot", types.String(),
-                                                 help="dataRoot which will contain the generated outputs"),
-                                        keys.Key("maskFile", types.String(),
-                                                 help="config file describing which cobras will be put behind dots."),
                                         keys.Key("cams", types.String() * (1,),
                                                  help='list of camera used for roaching.'),
 
@@ -142,48 +132,20 @@ class DrpCmd(object):
         cmd.finish()
 
     def startDotRoach(self, cmd):
-        """ Start dot loop. """
+        """Start dot roach loop."""
         cmdKeys = cmd.cmd.keywords
-        # output root.
-        dataRoot = cmdKeys['dataRoot'].values[0]
-        # which fiber/cobra to put behind dot.
-        maskFile = cmdKeys['maskFile'].values[0]
-        # keep moving no matter what.
-        keepMoving = 'keepMoving' in cmdKeys
-        # which camera are used for roaching.
         cams = cmdKeys['cams'].values
-
-        # lookup for any un-finalized roaching and finish it.
-        if os.path.isdir(dataRoot):
-            cmd.inform('text="found a DotRoach left-over, finishing it now..."')
-            roach = dotRoach.DotRoach(self.engine, dataRoot, maskFile, "")
-            roach.finish()
-
-        self.engine.startDotRoach(dataRoot, maskFile, cams, keepMoving=keepMoving)
+        self.engine.startDotRoach(cams)
         cmd.finish('text="starting loop... Run dotRoaches, run ! "')
 
     def processDotRoach(self, cmd):
-        """ Data is actually processed on the fly, just basically generate status. """
-        cmdKeys = cmd.cmd.keywords
-        iteration = cmdKeys['iteration'].values[0]
-
-        self.engine.dotRoach.waitForResult(iteration)
+        """Wait for flux extraction results and report status."""
+        self.engine.dotRoach.waitForResult()
         self.engine.dotRoach.status(cmd)
-
-        cmd.finish()
-
-    def dotRoachPhase2(self, cmd):
-        """ Data is actually processed on the fly, just basically generate status. """
-        self.engine.dotRoach.phase2()
-        cmd.finish()
-
-    def dotRoachPhase3(self, cmd):
-        """ Data is actually processed on the fly, just basically generate status. """
-        self.engine.dotRoach.phase3()
         cmd.finish()
 
     def stopDotRoach(self, cmd):
-        """ Stop dot loop. """
+        """Stop dot roach loop."""
         self.engine.stopDotRoach(cmd)
         cmd.finish()
 

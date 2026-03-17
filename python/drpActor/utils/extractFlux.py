@@ -4,6 +4,7 @@ import time
 import numpy as np
 import pandas as pd
 from lsst.ip.isr import AssembleCcdTask
+from pfs.utils.fiberids import FiberIds
 
 config = AssembleCcdTask.ConfigClass()
 config.doTrim = True
@@ -15,6 +16,8 @@ config = ExtractSpectraTask.ConfigClass()
 config.doCrosstalk = False
 config.validate()
 extractSpectra = ExtractSpectraTask(config=config)
+
+gfm = FiberIds()
 
 
 def getWindowedFluxes(exp, dataId, fiberTrace, detectorMap, darkVariance=30, **kwargs):
@@ -57,8 +60,11 @@ def getWindowedFluxes(exp, dataId, fiberTrace, detectorMap, darkVariance=30, **k
     spectra = extractSpectra.run(exp.maskedImage, fiberTrace, detectorMap).spectra.toPfsArm(dataId)
     spectra.flux[spectra.mask != 0] = np.nan
 
-    df = pd.DataFrame(dict(flux=np.nanmedian(spectra.flux, axis=1), fiberId=spectra.fiberId))
+    df = pd.DataFrame(dict(flux=np.nanmedian(spectra.flux, axis=1), fiberId=spectra.fiberId,
+                           cobraId=gfm.fiberIdToCobraId(spectra.fiberId)))
+
     # calculating time.
     totalTime = round(time.time() - start, 1)
     logging.info(f'{dataId} flux extracted in {totalTime}s')
+
     return df
