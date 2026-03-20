@@ -15,6 +15,7 @@ from lsst.pipe.base.separable_pipeline_executor import SeparablePipelineExecutor
 from lsst.pipe.base import Pipeline, ExecutionResources
 from drpActor.utils.chainedCollection import extend_collection_chain
 from ics.utils.opdb import opDB
+from pfs.utils.database.opdb import OpDB
 from lsst.daf.butler.cli.cliLog import CliLog
 
 # Set INFO level logging for drpActor on module import.
@@ -105,6 +106,7 @@ class DrpEngine:
         self.rawButler = self.loadButler(self.rawRun)
         self.pfsConfigButler = self.loadButler(self.pfsConfigRun)
         self.butler = Butler(self.datastore, collections=[self.inputCollection, self.outputCollection])
+        self.opdb = OpDB()
 
         self.ingestHandler = IngestHandler(self)
         self.reducePipeline, self.reduceButler, self.executor, self.timestamp = self.setupReducePipeline(datastore,
@@ -152,6 +154,7 @@ class DrpEngine:
         # opdb
         opdbHost = siteConfig.get('opdb').get('host')
         opDB.host = opdbHost
+        OpDB.set_default_connection(host=opdbHost)
 
         # logs and callbacks
         lsstLog = siteConfig.get('lsstLog')
@@ -489,16 +492,13 @@ class DrpEngine:
 
             self.configOverride = configOverride
 
-    def startDotRoach(self, dataRoot, maskFile, cams, keepMoving=False):
+    def startDotRoach(self, cams):
         """Starting dotRoach loop."""
-        # Deactivating auto-detrend.
         self.doAutoReduce = False
-        # instantiating DotRoach object.
-        self.dotRoach = dotRoach.DotRoach(self, dataRoot, maskFile, cams, keepMoving=keepMoving)
+        self.dotRoach = dotRoach.DotRoach(self, cams)
 
     def stopDotRoach(self, cmd):
-        """Stopping dotRoach loop"""
-        # Re-activating auto-detrend.
+        """Stopping dotRoach loop."""
         self.doAutoReduce = True
 
         if not self.dotRoach:
@@ -506,5 +506,4 @@ class DrpEngine:
             return
 
         cmd.inform('text="ending dotRoach loop"')
-        self.dotRoach.finish()
         self.dotRoach = None
