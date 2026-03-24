@@ -5,37 +5,47 @@ import tempfile
 import time
 
 import pandas as pd
-from drpActor.utils.extractFlux import applyQuickISR, getWindowedFluxes
-from pfs.datamodel.pfsConfig import FiberStatus
-from pfs.drp.stella.adjustDetectorMap import AdjustDetectorMapTask
-from pfs.drp.stella.centroidTraces import CentroidTracesTask, tracesToLines
+from drpActor.utils.extractFlux import applyQuickISR, extractSpectraFromExp, getSpectraRatio
+from pfs.datamodel import PfsArm
 from pfs.drp.stella.DetectorMapContinued import DetectorMap
 from pfs.drp.stella.FiberTraceSetContinued import FiberTraceSet
-from pfs.utils.fiberids import FiberIds
+from pfs.drp.stella.adjustDetectorMap import AdjustDetectorMapTask
+from pfs.drp.stella.centroidTraces import CentroidTracesTask, tracesToLines
 
 
-def extractFluxWorker(exp, dataId, fiberTrace, detectorMap, fluxPerFiber):
-    """Extract windowed flux for one camera and append to shared results list (runs in subprocess)."""
-    fluxPerFiber.append(getWindowedFluxes(exp, dataId, fiberTrace=fiberTrace, detectorMap=detectorMap))
+def extractRatioWorker(exp, dataId, fiberTrace, detectorMap, refSpectra, results):
+    """Extract flux ratio for one camera and append to shared results list (runs in subprocess)."""
+    df, _ = getSpectraRatio(exp, dataId, fiberTrace, detectorMap, refFlux=refSpectra.flux)
+    results.append(df)
 
 
-def buildFiberTrace(dataId, exposure, fiberProfiles, detectorMap, pfsConfig, tmpDir):
-    """Adjust detectorMap and build fiberTrace for one camera (runs in subprocess).
+def buildCameraCalibration(dataId, exposure, fiberProfiles, detectorMap, pfsConfig, tmpDir):
+    """Adjust detectorMap, build fiberTrace, and extract reference spectra for one camera (runs in subprocess).
 
-    All inputs are pre-loaded by the caller. Results are written to FITS files in
-    tmpDir (keyed by arm+spectrograph) to avoid pickling LSST objects across processes.
+    All inputs are pre-loaded by the caller. Results are written to tmpDir to avoid
+    pickling LSST objects across processes:
+      - detectorMap_{arm}{spec}.fits
+      - pfsFiberTrace-2000-01-01-000000-{arm}{spec}.fits
+      - pfsArm_{arm}{spec}.fits
     """
     arm, spec = dataId['arm'], dataId['spectrograph']
-    logging.info(f'building fiberTrace for {arm}{spec}')
+    t0 = time.time()
+    logging.info(f'[{arm}{spec}] building camera calibration...')
 
     postIsrExp = applyQuickISR(exposure.convertF())
     traces = CentroidTracesTask().run(postIsrExp, detectorMap, pfsConfig=pfsConfig)
     lines = tracesToLines(detectorMap, traces, spectralError=5.0)
     detectorMap = AdjustDetectorMapTask().run(detectorMap, lines, arm, postIsrExp.visitInfo).detectorMap
+    logging.info(f'[{arm}{spec}] detectorMap adjusted ({len(lines)} lines)')
     fiberTrace = fiberProfiles.makeFiberTracesFromDetectorMap(detectorMap)
+    logging.info(f'[{arm}{spec}] fiberTrace built ({len(fiberTrace)} traces)')
 
     detectorMap.writeFits(os.path.join(tmpDir, f'detectorMap_{arm}{spec}.fits'))
     fiberTrace.writeFits(os.path.join(tmpDir, f'pfsFiberTrace-2000-01-01-000000-{arm}{spec}.fits'))
+
+    spectra = extractSpectraFromExp(exposure.convertF(), dataId, fiberTrace, detectorMap)
+    spectra.writeFits(os.path.join(tmpDir, f'pfsArm_{arm}{spec}.fits'))
+    logging.info(f'[{arm}{spec}] camera calibration done in {round(time.time() - t0, 1)}s')
 
 
 class DotRoach(object):
@@ -47,17 +57,10 @@ class DotRoach(object):
         self.processManager = multiprocessing.Manager()
         self.cams = cams
 
-        self.normFactor = None
         self.currentVisit = None
-        self.pfsConfig = None
         self.detectorMaps = dict()
         self.fiberTraces = dict()
-
-    @property
-    def monitoringFiberIds(self):
-        # BROKENCOBRA fibers are parked at home — use them as lamp monitors.
-        atHome = self.pfsConfig[self.pfsConfig.fiberStatus == FiberStatus.BROKENCOBRA].fiberId
-        return list(atHome)
+        self.refSpectra = dict()  # cameraKey -> PfsArm
 
     def run(self, pfsVisit):
         """Run method using pfsVisit."""
@@ -67,46 +70,53 @@ class DotRoach(object):
         self.runAway(pfsVisit.visit, relevantFiles)
 
     def collectFiberData(self, files):
-        """Retrieve raw exposures from butler and return flux per fiber."""
-        fluxPerFiber = self.processManager.list()
+        """Retrieve raw exposures from butler and return flux ratio per fiber."""
+        results = self.processManager.list()
         jobs = []
 
-        # Load exposures upfront — needed for detectorMap adjustment and parallel flux extraction.
         exps = {file.cam: self.engine.butler.get('raw.exposure', file.dataId) for file in files}
 
         if not self.fiberTraces:
+            logging.info(f'dotRoach: initializing calibrations for {[f.cam for f in files]}')
             self.initializeCalibrations(files, exps)
+            logging.info('dotRoach: calibrations ready')
 
         for file in files:
-            fiberTrace, detectorMap = self.getFiberTrace(file.dataId)
+            fiberTrace, detectorMap, refSpectra = self.getCameraCalibrations(file.dataId)
             exp = exps[file.cam]
-            p = multiprocessing.Process(target=extractFluxWorker,
-                                        args=(exp.convertF(), file.dataId, fiberTrace, detectorMap, fluxPerFiber))
+            p = multiprocessing.Process(target=extractRatioWorker,
+                                        args=(exp.convertF(), file.dataId, fiberTrace, detectorMap,
+                                              refSpectra, results))
             jobs.append(p)
             p.start()
 
         for proc in jobs:
             proc.join()
 
-        return pd.concat(fluxPerFiber).groupby('fiberId').sum().reset_index()
+        return pd.concat(results).groupby('fiberId').first().reset_index()
 
     def initializeCalibrations(self, files, exps):
-        """Build and cache fiberTraces for all cameras in parallel.
+        """Build and cache fiberTraces and reference flux for all cameras in parallel.
 
-        Butler reads happen in the main process. Per-camera CPU work (ISR, trace
-        centroiding, detectorMap adjustment) is parallelized. Results are exchanged
-        via FITS files to avoid pickling LSST objects across processes.
+        fiberTraces are built from the full-frame flat (passed as the first exposure
+        in the dot-roach sequence).  The same exposure is used to extract refFlux —
+        the per-fiber, per-wavelength reference against which subsequent windowed
+        exposures are ratioed.
+
+        Butler reads happen in the main process. Per-camera CPU work is parallelized
+        via subprocesses; fiberTrace/detectorMap results are exchanged via FITS files
+        to avoid pickling LSST objects.
         """
-        self.pfsConfig = self.engine.butler.get('pfsConfig', files[0].dataId)
+        pfsConfig = self.engine.butler.get('pfsConfig', files[0].dataId)
 
         with tempfile.TemporaryDirectory() as tmpDir:
             jobs = []
             for file in files:
                 fiberProfiles = self.engine.butler.get('fiberProfiles', file.dataId)
                 detectorMap = self.engine.butler.get('detectorMap_calib', file.dataId)
-                p = multiprocessing.Process(target=buildFiberTrace,
+                p = multiprocessing.Process(target=buildCameraCalibration,
                                             args=(file.dataId, exps[file.cam], fiberProfiles,
-                                                  detectorMap, self.pfsConfig, tmpDir))
+                                                  detectorMap, pfsConfig, tmpDir))
                 jobs.append(p)
                 p.start()
             for p in jobs:
@@ -119,41 +129,34 @@ class DotRoach(object):
                     os.path.join(tmpDir, f'detectorMap_{arm}{spec}.fits'))
                 self.fiberTraces[cameraKey] = FiberTraceSet.readFits(
                     os.path.join(tmpDir, f'pfsFiberTrace-2000-01-01-000000-{arm}{spec}.fits'))
+                self.refSpectra[cameraKey] = PfsArm.readFits(os.path.join(tmpDir, f'pfsArm_{arm}{spec}.fits'))
 
-    def getFiberTrace(self, dataId):
-        """Return the cached (fiberTrace, detectorMap) for the given camera."""
+    def getCameraCalibrations(self, dataId):
+        """Return the cached (fiberTrace, detectorMap, refSpectra) for the given camera."""
         cameraKey = dataId['spectrograph'], dataId['arm']
-        return self.fiberTraces[cameraKey], self.detectorMaps[cameraKey]
-
-    def fluxNormalized(self, fluxPerFiber):
-        """Return scalar normalization factor correcting for lamp response drift."""
-        lampResponse = fluxPerFiber.set_index('fiberId').reindex(self.monitoringFiberIds).dropna().flux.sum()
-        lampResponse = float(lampResponse) if lampResponse else 1.0
-
-        if self.normFactor is None:
-            self.normFactor = lampResponse
-
-        return self.normFactor / lampResponse
+        return self.fiberTraces[cameraKey], self.detectorMaps[cameraKey], self.refSpectra[cameraKey]
 
     def runAway(self, visit, files):
-        """Extract flux, normalize, and bulk-insert into opdb."""
+        """Extract flux ratio and bulk-insert into opdb."""
         self.currentVisit = visit
+        t0 = time.time()
+        logging.info(f'dotRoach: processing visit={visit} cams={[f.cam for f in files]}')
 
         fluxPerFiber = self.collectFiberData(files)
-        normFactor = self.fluxNormalized(fluxPerFiber)
 
         # Drop engineering fibers — only cobras go to the DB.
-        fluxPerCobra = fluxPerFiber[fluxPerFiber.cobraId != FiberIds.MISSING_VALUE].copy()
-        fluxPerCobra['flux_norm'] = fluxPerCobra.flux.to_numpy() * normFactor
+        fluxPerCobra = fluxPerFiber[fluxPerFiber.cobraId != -1].copy()
         fluxPerCobra['pfs_visit_id'] = visit
         fluxPerCobra = fluxPerCobra.rename(columns={'cobraId': 'cobra_id'})[
             ['pfs_visit_id', 'cobra_id', 'flux', 'flux_norm']]
 
         self.engine.opdb.insert('dot_roach_flux', fluxPerCobra)
+        logging.info(f'dotRoach: visit={visit} inserted {len(fluxPerCobra)} rows in {round(time.time() - t0, 1)}s')
 
-    def waitForResult(self):
+    def waitForResult(self, cmd):
         """Wait until dot_roach_flux rows for the current visit appear in opdb."""
         start = time.time()
+        lastReport = start
 
         while True:
             count = self.engine.opdb.query_scalar(
@@ -168,6 +171,10 @@ class DotRoach(object):
                 raise RuntimeError(
                     f'no dot_roach_flux results for visit={self.currentVisit} after {round(now - start, 1)}s'
                 )
+
+            if now - lastReport >= 5:
+                cmd.inform(f'text="dotRoach: waiting for visit={self.currentVisit} ({round(now - start)}s elapsed)"')
+                lastReport = now
 
             time.sleep(0.1)
 
