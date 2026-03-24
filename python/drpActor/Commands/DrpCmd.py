@@ -143,7 +143,7 @@ class DrpCmd(object):
         if self.engine.dotRoach is None:
             cmd.fail('text="no dotRoach loop running"')
             return
-        self.engine.dotRoach.waitForResult()
+        self.engine.dotRoach.waitForResult(cmd)
         self.engine.dotRoach.status(cmd)
         cmd.finish()
 
