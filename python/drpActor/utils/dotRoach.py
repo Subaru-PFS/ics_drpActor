@@ -62,12 +62,20 @@ class DotRoach(object):
         self.fiberTraces = dict()
         self.refSpectra = dict()  # cameraKey -> PfsArm
 
+    def getCamFiles(self, pfsVisit):
+        return [f for f in pfsVisit.exposureFiles if f.cam in self.cams]
+
+    def isVisitComplete(self, pfsVisit):
+        """Return True when all expected cam files are present."""
+        return len(self.getCamFiles(pfsVisit)) == len(self.cams)
+
     def run(self, pfsVisit):
         """Run method using pfsVisit."""
-        relevantFiles = [f for f in pfsVisit.exposureFiles if f.cam in self.cams]
-        if not relevantFiles:
+        camFiles = self.getCamFiles(pfsVisit)
+        if not camFiles:
             return
-        self.runAway(pfsVisit.visit, relevantFiles)
+
+        self.runAway(pfsVisit.visit, camFiles)
 
     def collectFiberData(self, files):
         """Retrieve raw exposures from butler and return flux ratio per fiber."""

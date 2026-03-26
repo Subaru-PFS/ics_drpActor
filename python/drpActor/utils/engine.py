@@ -269,7 +269,11 @@ class DrpEngine:
             self.logger.warning(f'No pfsVisit found for visit {exposureFile.visit}')
             self.pfsVisits[exposureFile.visit] = PfsVisit(exposureFile.visit)
 
-        self.pfsVisits[exposureFile.visit].addExposure(exposureFile)
+        pfsVisit = self.pfsVisits[exposureFile.visit]
+        pfsVisit.addExposure(exposureFile)
+
+        if self.dotRoach and self.dotRoach.isVisitComplete(pfsVisit):
+            self.processPfsVisit(pfsVisit)
 
     def newVisit(self, visit):
         """
@@ -280,6 +284,10 @@ class DrpEngine:
         visit : int
             Identifier for the visit to be processed.
         """
+        # dotRoach has its own mechanism
+        if self.dotRoach:
+            return
+
         pfsVisit = self.pfsVisits.get(visit)
 
         if not pfsVisit:
