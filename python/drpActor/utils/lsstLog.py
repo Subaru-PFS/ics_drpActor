@@ -24,7 +24,9 @@ def setLsstLongLog(level=logging.INFO):
         datefmt="%Y-%m-%dT%H:%M:%S"
     )
 
-    # logging.getLogger().setLevel(logging.WARNING)  # Default level for all loggers
+    # Set the level on the root "lsst" logger as well to apply to any future or existing sub-loggers
+    lsstLogger = logging.getLogger("lsst")
+    lsstLogger.setLevel(level)
 
     for name in logging.root.manager.loggerDict:
         if name.startswith("lsst"):
