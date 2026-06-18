@@ -84,7 +84,7 @@ class DrpEngine:
         self.numProc = numProc  # number of worker processes (process-level parallelism)
         self.taskThreads = taskThreads
         self.clobberOutput = clobberOutput
-        self.lsstLog = lsstLog
+        self.lsstLog = lsstLog if lsstLog is not None else {}
         self.detrendCallback = detrendCallback
         self.doGenDetrendKey = detrendCallback.get('activated', False)
 
@@ -451,7 +451,7 @@ class DrpEngine:
         self.executor.pre_execute_qgraph(quantumGraph)
 
         # setting long_log disgustingly.
-        long_log = self.lsstLog.get('long_log', False)
+        long_log = self.lsstLog.get('long_log', True)
         level = self.lsstLog.get('level', logging.INFO)
         if long_log:
             setLsstLongLog(level)
