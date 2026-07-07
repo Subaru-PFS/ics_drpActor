@@ -3,6 +3,7 @@ import logging
 import os
 from datetime import timezone
 from importlib import reload
+import time
 
 import drpActor.utils.dotRoach as dotRoach
 
@@ -398,24 +399,20 @@ class DrpEngine:
                     pfsVisit.setupDetrendCallback(self)
 
                 # Running the pipeline for that visit.
-                returnCode = 0
-                statusStr = "OK"
-                cmd_level = 'inform'
+                t0 = time.perf_counter()
                 try:
-                    t0 = time.perf_counter()
                     self.runReductionPipeline(where=f"visit={pfsVisit.visit}")
+                    returnCode = 0
+                    statusStr = "OK"
                 except Exception as e:
-                    self.logger.exception(e)
                     returnCode = 1
                     statusStr = "FAILED"
-                    cmd_level = "warn"
-                finally:
-                    t1 = time.perf_counter()
+                    self.logger.exception(e)
+                t1 = time.perf_counter()
 
-                    # Call either `inform` or `warn` in a silly way.
-                    getattr(cmd, cmd_level)(
-                        f'reduceExposureStatus={pfsVisit.visit},{returnCode},{statusStr},{t1 - t0:.1f}'
-                    )
+                cmd = self.actor.bcast
+                report = cmd.inform if returnCode == 0 else cmd.warn
+                report(f'reduceExposureStatus={pfsVisit.visit},{returnCode},{statusStr},{t1 - t0:.1f}')
 
             # run roaches ! run !
             if self.dotRoach is not None:
