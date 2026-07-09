@@ -399,20 +399,7 @@ class DrpEngine:
                     pfsVisit.setupDetrendCallback(self)
 
                 # Running the pipeline for that visit.
-                t0 = time.perf_counter()
-                try:
-                    self.runReductionPipeline(where=f"visit={pfsVisit.visit}")
-                    returnCode = 0
-                    statusStr = "OK"
-                except Exception as e:
-                    returnCode = 1
-                    statusStr = "FAILED"
-                    self.logger.exception(e)
-                t1 = time.perf_counter()
-
-                cmd = self.actor.bcast
-                report = cmd.inform if returnCode == 0 else cmd.warn
-                report(f'reduceExposureStatus={pfsVisit.visit},{returnCode},{statusStr},{t1 - t0:.1f}')
+                self.runReductionPipeline(where=f"visit={pfsVisit.visit}")
 
             # run roaches ! run !
             if self.dotRoach is not None:
@@ -442,10 +429,16 @@ class DrpEngine:
         visitStr = ','.join(str(p.visit) for p in pfsVisits)
 
         self.logger.info(f'processVisitGroup started on {visitStr}')
+        t0 = time.perf_counter()
         self.runReductionPipeline(where=f"visit in ({visitStr})")
+        t1 = time.perf_counter()
+
+        cmd = self.actor.bcast
 
         for p in pfsVisits:
             p.finish()
+            cmd.inform(f'reduceExposureStatus={p.visit},0,"OK",{t1 - t0:.1f}')
+
 
     def runReductionPipeline(self, where):
         """
