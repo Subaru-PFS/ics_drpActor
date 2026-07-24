@@ -6,7 +6,7 @@ import time
 
 import pandas as pd
 from drpActor.utils.extractFlux import applyQuickISR, extractSpectraFromExp, getSpectraRatio
-from pfs.datamodel import PfsArm
+from pfs.datamodel import PfsArm, FiberStatus
 from pfs.drp.stella.DetectorMapContinued import DetectorMap
 from pfs.drp.stella.FiberTraceSetContinued import FiberTraceSet
 from pfs.drp.stella.adjustDetectorMap import AdjustDetectorMapTask
@@ -58,9 +58,24 @@ class DotRoach(object):
         self.cams = cams
 
         self.currentVisit = None
+        self.pfsConfig = None     # kept for the BROKENCOBRA lamp-monitor fibres
         self.detectorMaps = dict()
         self.fiberTraces = dict()
         self.refSpectra = dict()  # cameraKey -> PfsArm
+
+    @property
+    def monitoringFiberIds(self):
+        # BROKENCOBRA fibres are parked at home and fully illuminated — use them as lamp monitors.
+        return list(self.pfsConfig[self.pfsConfig.fiberStatus == FiberStatus.BROKENCOBRA].fiberId)
+
+    def lampFactor(self, fluxPerFiber):
+        """Per-visit lamp factor = median flux ratio of the parked BROKENCOBRA monitor fibres.
+
+        Since those fibres are always fully lit, their flux_ratio (flux / reference-spectra)
+        equals the lamp brightness relative to the reference flat.  Returns 1.0 if no monitors.
+        """
+        mon = fluxPerFiber.set_index('fiberId').reindex(self.monitoringFiberIds).dropna(subset=['flux_norm'])
+        return float(mon.flux_norm.median()) if len(mon) else 1.0
 
     def getCamFiles(self, pfsVisit):
         return [f for f in pfsVisit.exposureFiles if f.cam in self.cams]
@@ -116,6 +131,7 @@ class DotRoach(object):
         to avoid pickling LSST objects.
         """
         pfsConfig = self.engine.butler.get('pfsConfig', files[0].dataId)
+        self.pfsConfig = pfsConfig     # for the BROKENCOBRA lamp-monitor fibres
 
         with tempfile.TemporaryDirectory() as tmpDir:
             jobs = []
@@ -145,21 +161,30 @@ class DotRoach(object):
         return self.fiberTraces[cameraKey], self.detectorMaps[cameraKey], self.refSpectra[cameraKey]
 
     def runAway(self, visit, files):
-        """Extract flux ratio and bulk-insert into opdb."""
+        """Extract flux ratio, lamp-normalize, and bulk-insert into opdb."""
         self.currentVisit = visit
         t0 = time.time()
         logging.info(f'dotRoach: processing visit={visit} cams={[f.cam for f in files]}')
 
         fluxPerFiber = self.collectFiberData(files)
 
-        # Drop engineering fibers — only cobras go to the DB.
+        # Lamp factor from the parked BROKENCOBRA monitor fibres (always fully lit).
+        lampFactor = self.lampFactor(fluxPerFiber)
+
+        # Drop engineering fibers — only cobras go to the DB.  Columns:
+        #   flux_abs        raw extracted flux
+        #   flux_ratio      flux / reference-spectra (per-cobra hide ratio)
+        #   flux_ratio_norm flux_ratio / lamp factor (monitor-corrected)
         fluxPerCobra = fluxPerFiber[fluxPerFiber.cobraId != -1].copy()
         fluxPerCobra['pfs_visit_id'] = visit
-        fluxPerCobra = fluxPerCobra.rename(columns={'cobraId': 'cobra_id'})[
-            ['pfs_visit_id', 'cobra_id', 'flux', 'flux_norm']]
+        fluxPerCobra['flux_ratio_norm'] = fluxPerCobra.flux_norm.to_numpy() / lampFactor
+        fluxPerCobra = fluxPerCobra.rename(columns={'cobraId': 'cobra_id', 'flux': 'flux_abs',
+                                                    'flux_norm': 'flux_ratio'})[
+            ['pfs_visit_id', 'cobra_id', 'flux_abs', 'flux_ratio', 'flux_ratio_norm']]
 
         self.engine.opdb.insert('dot_roach_flux', fluxPerCobra)
-        logging.info(f'dotRoach: visit={visit} inserted {len(fluxPerCobra)} rows in {round(time.time() - t0, 1)}s')
+        logging.info(f'dotRoach: visit={visit} inserted {len(fluxPerCobra)} rows '
+                     f'(lamp={round(lampFactor, 3)}) in {round(time.time() - t0, 1)}s')
 
     def waitForResult(self, cmd):
         """Wait until dot_roach_flux rows for the current visit appear in opdb."""
