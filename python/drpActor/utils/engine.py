@@ -1,5 +1,4 @@
 import datetime
-import logging
 import os
 from datetime import timezone
 from importlib import reload
@@ -11,12 +10,16 @@ reload(dotRoach)
 
 from lsst.daf.butler import Butler
 from drpActor.utils.pfsVisit import PfsVisit
-from drpActor.utils.lsstLog import setLsstLongLog
 from drpActor.utils.tasks.ingest import IngestHandler
 from lsst.ctrl.mpexec import SeparablePipelineExecutor
 from lsst.pipe.base import Pipeline, ExecutionResources
 from drpActor.utils.chainedCollection import extend_collection_chain
 from ics.utils.opdb import opDB
+from lsst.daf.butler.cli.cliLog import CliLog
+
+# Set INFO level logging for drpActor on module import.
+CliLog.setLogLevels([('lsst', 'INFO'), ('pfs', 'INFO')])
+CliLog.initLog(longlog=True)
 
 
 class DrpEngine:
@@ -456,12 +459,6 @@ class DrpEngine:
             return
 
         self.executor.pre_execute_qgraph(quantumGraph)
-
-        # setting long_log disgustingly.
-        long_log = self.lsstLog.get('long_log', True)
-        level = self.lsstLog.get('level', logging.INFO)
-        if long_log:
-            setLsstLongLog(level)
 
         self.logger.info(f'run_pipeline where="{where}" num_proc={self.numProc} fail_fast={self.fail_fast}')
         # passing down num_proc for the most recent version.
