@@ -1,5 +1,4 @@
 setupRequired(pfs_pipe2d)
-setupOptional(drp_qa)
 
 setupRequired(ics_actorkeys)
 setupRequired(pfs_instdata)
