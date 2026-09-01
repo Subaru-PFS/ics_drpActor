@@ -63,11 +63,13 @@ class CapturingOpdb:
 
 
 class StandaloneEngine:
-    """The two members DotRoach uses: a butler to read from and an opdb to write to."""
+    """The engine members DotRoach uses: a butler to read from, an opdb to write to,
+    and the datastore path its calibration scratch directory is derived from."""
 
-    def __init__(self, butler, opdb):
+    def __init__(self, butler, opdb, datastore):
         self.butler = butler
         self.opdb = opdb
+        self.datastore = datastore
 
 
 def ccdFiles(visit, cams, night=NIGHT, root=RAW_ROOT):
@@ -111,7 +113,8 @@ def main():
 
     butler = Butler(DATASTORE, collections=[INPUT_COLLECTION, OUTPUT_COLLECTION])
     capturing = CapturingOpdb(opdb, doInsert=args.insert)
-    roach = dotRoach.DotRoach(StandaloneEngine(butler, capturing), cams)
+    roach = dotRoach.DotRoach(StandaloneEngine(butler, capturing, DATASTORE), cams)
+    logging.info(f'calibration scratch directory: {roach.scratchDir}')
 
     # The init visit first: it populates fiberTraces, refSpectra and pfsConfig, which
     # the scan visit is then measured against.

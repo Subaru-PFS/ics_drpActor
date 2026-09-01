@@ -64,6 +64,23 @@ class DotRoach(object):
         self.refSpectra = dict()  # cameraKey -> PfsArm
 
     @property
+    def scratchDir(self):
+        """Where initializeCalibrations stages its per-camera FITS.
+
+        A fiberTrace runs to several hundred megabytes and all cameras write theirs at
+        once, so the system temp directory is the wrong home: it is commonly a small root
+        filesystem, while the datastore is sized for exposures.  Falls back to the system
+        temp when that path cannot be created, which keeps a misconfigured datastore from
+        turning into a failure to reduce.
+        """
+        try:
+            scratch = os.path.join(os.path.dirname(self.engine.datastore), 'dotRoachTmp')
+            os.makedirs(scratch, exist_ok=True)
+            return scratch
+        except (OSError, AttributeError, TypeError):
+            return None
+
+    @property
     def monitoringFiberIds(self):
         # BROKENCOBRA fibres are parked at home and fully illuminated — use them as lamp monitors.
         return list(self.pfsConfig[self.pfsConfig.fiberStatus == FiberStatus.BROKENCOBRA].fiberId)
@@ -133,7 +150,7 @@ class DotRoach(object):
         pfsConfig = self.engine.butler.get('pfsConfig', files[0].dataId)
         self.pfsConfig = pfsConfig     # for the BROKENCOBRA lamp-monitor fibres
 
-        with tempfile.TemporaryDirectory() as tmpDir:
+        with tempfile.TemporaryDirectory(dir=self.scratchDir) as tmpDir:
             jobs = []
             for file in files:
                 fiberProfiles = self.engine.butler.get('fiberProfiles', file.dataId)
