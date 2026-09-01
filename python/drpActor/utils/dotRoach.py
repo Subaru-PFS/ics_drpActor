@@ -10,7 +10,7 @@ from pfs.datamodel import PfsArm, FiberStatus
 from pfs.drp.stella.DetectorMapContinued import DetectorMap
 from pfs.drp.stella.FiberTraceSetContinued import FiberTraceSet
 from pfs.drp.stella.adjustDetectorMap import AdjustDetectorMapTask
-from pfs.drp.stella.centroidTraces import CentroidTracesTask, tracesToLines
+from pfs.drp.stella.centroidTraces import CentroidTracesTask
 
 
 def extractRatioWorker(exp, dataId, fiberTrace, detectorMap, refSpectra, results):
@@ -33,8 +33,8 @@ def buildCameraCalibration(dataId, exposure, fiberProfiles, detectorMap, pfsConf
     logging.info(f'[{arm}{spec}] building camera calibration...')
 
     postIsrExp = applyQuickISR(exposure.convertF())
-    traces = CentroidTracesTask().run(postIsrExp, detectorMap, pfsConfig=pfsConfig)
-    lines = tracesToLines(detectorMap, traces, spectralError=5.0)
+    # CentroidTracesTask returns the trace measurements already formatted as lines.
+    lines = CentroidTracesTask().run(postIsrExp, detectorMap, pfsConfig=pfsConfig)
     detectorMap = AdjustDetectorMapTask().run(detectorMap, lines, arm, postIsrExp.visitInfo).detectorMap
     logging.info(f'[{arm}{spec}] detectorMap adjusted ({len(lines)} lines)')
     fiberTrace = fiberProfiles.makeFiberTracesFromDetectorMap(detectorMap)
