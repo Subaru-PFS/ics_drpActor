@@ -9,11 +9,12 @@ import drpActor.utils.dotRoach as dotRoach
 reload(dotRoach)
 
 from lsst.daf.butler import Butler
+from lsst.daf.butler.registry import ConflictingDefinitionError
 from drpActor.utils.pfsVisit import PfsVisit
 from drpActor.utils.tasks.ingest import IngestHandler
 from lsst.pipe.base.separable_pipeline_executor import SeparablePipelineExecutor
 from lsst.pipe.base import Pipeline, ExecutionResources
-from drpActor.utils.chainedCollection import extend_collection_chain
+from drpActor.utils.chainedCollection import prepend_collection_chain
 from ics.utils.opdb import opDB
 from lsst.daf.butler.cli.cliLog import CliLog
 
@@ -230,8 +231,8 @@ class DrpEngine:
         # Initialize the Butler with the input and output collections
         butler = Butler(datastore, collections=[inputCollection], run=run)
 
-        # extend collection chaine
-        extend_collection_chain(datastore, chainedCollection, run, logger=self.logger)
+        # new run takes precedence over the previous ones.
+        prepend_collection_chain(datastore, chainedCollection, run, logger=self.logger)
 
         # Set up the pipeline executor for parallel processing
         executor = SeparablePipelineExecutor(butler=butler, clobber_output=True,
@@ -443,7 +444,7 @@ class DrpEngine:
             cmd.inform(f'reduceExposureStatus={p.visit},0,"OK",{t1 - t0:.1f}')
 
 
-    def runReductionPipeline(self, where):
+    def runReductionPipeline(self, where, retry=True):
         """
         Execute the reduction pipeline for a given visit.
 
@@ -451,6 +452,8 @@ class DrpEngine:
         ----------
         where : str
             Query to filter the data for the specific visit.
+        retry : bool
+            Allow a single retry in a fresh run when the software versions no longer match the current one.
         """
         try:
             quantumGraph = self.executor.make_quantum_graph(pipeline=self.reducePipeline, where=where)
@@ -458,36 +461,79 @@ class DrpEngine:
             self.logger.exception(e)
             return
 
-        self.executor.pre_execute_qgraph(quantumGraph)
+        try:
+            self.executor.pre_execute_qgraph(quantumGraph)
+        except ConflictingDefinitionError as e:
+            # A run holds a single packages dataset, so a conda package updated underneath the actor makes
+            # that run unusable, only a new one can record the new versions.
+            if not retry:
+                raise
+
+            self.logger.warning(f'Software versions changed: {e}')
+            self.newReduceRun(configOverride=self.configOverride)
+            self.runReductionPipeline(where, retry=False)
+            return
 
         self.logger.info(f'run_pipeline where="{where}" num_proc={self.numProc} fail_fast={self.fail_fast}')
         # passing down num_proc for the most recent version.
         self.executor.run_pipeline(graph=quantumGraph, num_proc=self.numProc, fail_fast=self.fail_fast)
 
+    def newReduceRun(self, configOverride=None):
+        """
+        Create a new output run and rebuild the reduction pipeline and its executor.
+
+        Parameters
+        ----------
+        configOverride : dict, optional
+            Overrides to set on the pipeline, which is reloaded from yaml without any.
+        """
+        self.logger.info('Creating new reduction run.')
+
+        (self.reducePipeline, self.reduceButler,
+         self.executor, self.timestamp) = self.setupReducePipeline(self.datastore,
+                                                                   self.inputCollection,
+                                                                   self.outputCollection,
+                                                                   self.pipelineYaml,
+                                                                   self.taskThreads)
+        self.configOverride = None
+
+        if configOverride is not None:
+            self.addConfigOverride(configOverride)
+
     def addConfigOverride(self, configOverride):
-        """Apply config overrides to the pipeline, creating a new run if they differ from the last ones."""
-        needNewRun = self.configOverride is not None and self.configOverride != configOverride
+        """
+        Merge config overrides into the active ones and set them on the pipeline, creating a new run
+        whenever that changes the current configuration.
 
-        if needNewRun:
-            self.logger.info('Config override changed; creating new reduction run.')
-            (self.reducePipeline, self.reduceButler,
-             self.executor, self.timestamp) = self.setupReducePipeline(self.datastore,
-                                                                       self.inputCollection,
-                                                                       self.outputCollection,
-                                                                       self.pipelineYaml,
-                                                                       self.taskThreads)
-        # just logging and setting override whenever it's actually necessary.
-        if self.configOverride != configOverride:
-            for label, cfg in configOverride.items():
-                for key, value in cfg.items():
-                    # can't add config override for non-defined task.
-                    if label not in self.reducePipeline.task_labels:
-                        continue
+        Parameters
+        ----------
+        configOverride : dict
+            {taskLabel: {configKey: value}}, only those keys are overridden, the ones already set keep
+            their current value.
+        """
+        merged = {label: dict(cfg) for label, cfg in (self.configOverride or {}).items()}
 
-                    self.reducePipeline.addConfigOverride(label, key=key, value=value)
-                    self.logger.info(f'reducePipeline.addConfigOverride:{label} {key}={value}')
+        for label, cfg in configOverride.items():
+            merged.setdefault(label, {}).update(cfg)
 
-            self.configOverride = configOverride
+        if merged == self.configOverride:
+            return
+
+        if self.configOverride is not None:
+            self.logger.info('Config override changed.')
+            self.newReduceRun(configOverride=merged)
+            return
+
+        for label, cfg in merged.items():
+            for key, value in cfg.items():
+                # can't add config override for non-defined task.
+                if label not in self.reducePipeline.task_labels:
+                    continue
+
+                self.reducePipeline.addConfigOverride(label, key=key, value=value)
+                self.logger.info(f'reducePipeline.addConfigOverride:{label} {key}={value}')
+
+        self.configOverride = merged
 
     def startDotRoach(self, dataRoot, maskFile, cams, keepMoving=False):
         """Starting dotRoach loop."""

@@ -29,7 +29,7 @@ class DrpCmd(object):
             ('status', '', self.status),
 
             ('ingest', '<visit> [<spectrograph>] [<arm>] [@(newEngine)]', self.ingest),
-            ('reduce', '<where> [@(skipRequireAdjustDetectorMap)] [@(quickCDS)]', self.reduce),
+            ('reduce', '<where> [<skipRequireAdjustDetectorMap>] [<quickCDS>]', self.reduce),
 
             ('startDotRoach', '<dataRoot> <maskFile> <cams> [@(keepMoving)]', self.startDotRoach),
             ('stopDotRoach', '', self.stopDotRoach),
@@ -62,6 +62,12 @@ class DrpCmd(object):
 
                                         keys.Key("where", types.String(), help="where condition "
                                                                                "to select the dataset to reduce"),
+                                        keys.Key("skipRequireAdjustDetectorMap", types.Bool('False', 'True'),
+                                                 help="set reduceExposure.requireAdjustDetectorMap to the "
+                                                      "opposite value, left untouched if not provided"),
+                                        keys.Key("quickCDS", types.Bool('False', 'True'),
+                                                 help="set isr.h4.quickCDS to that value, left untouched if "
+                                                      "not provided"),
                                         )
 
     @property
@@ -130,13 +136,21 @@ class DrpCmd(object):
         if '"' in where:
             where = where.replace('"', "'")
 
-        requireAdjustDetectorMap = 'skipRequireAdjustDetectorMap' not in cmdKeys
-        quickCDS = 'quickCDS' in cmdKeys
+        # only the provided arguments are overridden, the others keep their current value.
+        configOverride = dict()
+
+        if 'skipRequireAdjustDetectorMap' in cmdKeys:
+            skip = bool(cmdKeys['skipRequireAdjustDetectorMap'].values[0])
+            configOverride['reduceExposure'] = {'requireAdjustDetectorMap': not skip}
+
+        if 'quickCDS' in cmdKeys:
+            configOverride['isr'] = {'h4.quickCDS': bool(cmdKeys['quickCDS'].values[0])}
 
         engine = self.getEngine(cmdKeys)
-        configOverride = dict(reduceExposure={'requireAdjustDetectorMap': requireAdjustDetectorMap},
-                              isr={'h4.quickCDS': quickCDS})
-        engine.addConfigOverride(configOverride)
+
+        if configOverride:
+            engine.addConfigOverride(configOverride)
+
         engine.runReductionPipeline(where=where)
 
         cmd.finish()

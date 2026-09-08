@@ -2,16 +2,19 @@ import logging
 import subprocess
 
 
-def extend_collection_chain(datastore, chain_name, new_run, logger=None):
+def prepend_collection_chain(datastore, chain_name, new_run, logger=None):
     """
     Use subprocess to call the butler collection-chain command.
+
+    The run is placed at the head of the chain, so it takes precedence over the collections already in it
+    when a dataset is present in several of them.
 
     Parameters
     ----------
     datastore : str
         Path to the datastore.
     chain_name : str
-        Name of the collection chain to extend.
+        Name of the collection chain to prepend to, created if it does not exist.
     new_run : str
         Name of the new run collection to add to the chain.
     logger : logging.Logger, optional
@@ -29,7 +32,7 @@ def extend_collection_chain(datastore, chain_name, new_run, logger=None):
             datastore,
             chain_name,
             new_run,
-            "--mode", "extend"
+            "--mode", "prepend"
         ]
 
         # Execute the command and capture the output
@@ -41,5 +44,5 @@ def extend_collection_chain(datastore, chain_name, new_run, logger=None):
 
     except subprocess.CalledProcessError as e:
         # Log the error if the command fails
-        logger.error(f"Failed to extend collection chain: {e}")
+        logger.error(f"Failed to prepend to collection chain: {e}")
         logger.debug(f"Error output: {e.stderr}")
