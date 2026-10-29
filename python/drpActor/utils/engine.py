@@ -23,6 +23,30 @@ CliLog.setLogLevels([('lsst', 'INFO'), ('pfs', 'INFO')])
 CliLog.initLog(longlog=True)
 
 
+def groupConfigOverride(expType, sequenceType):
+    """
+    Config overrides for reducing a group of visits sharing the same exposure type.
+
+    Parameters
+    ----------
+    expType : str
+        sps_visit.exp_type of the visits (e.g. 'object', 'arc', 'flat', 'dark', 'bias', 'test').
+    sequenceType : str
+        Type of the IIC sequence the visits belong to (e.g. 'scienceObject', 'scienceObject_windowed').
+
+    Returns
+    -------
+    configOverride : dict
+        {taskLabel: {configKey: value}}.
+    """
+    # opdb does not record windowing, only the sequenceType does.
+    requireAdjustDetectorMap = expType == 'object' and not sequenceType.endswith('_windowed')
+    quickCDS = expType not in ['object', 'dark']
+
+    return dict(reduceExposure={'requireAdjustDetectorMap': requireAdjustDetectorMap},
+                isr={'h4.quickCDS': quickCDS})
+
+
 class DrpEngine:
     """
     Engine responsible for data reduction, ingestion, and configuration management for PFS.
@@ -295,11 +319,8 @@ class DrpEngine:
 
         The method queries opDB for all pfs_visit_id belonging to the given iic_sequence_id, verifies that each visit
         exists in self.pfsVisits and is already ingested, then, if self.groupVisit is True, runs the reduction
-        pipeline on the set via processVisitGroup.
-
-        When running the group reduction, this method also adjusts the reduceExposure configuration on the fly:
-        reduceExposure.config.requireAdjustDetectorMap is set to True only for sequences with sequenceType equal
-        to 'scienceObject' and False otherwise, before calling processVisitGroup.
+        pipeline on the set via processVisitGroup. Visits sharing a single sps_visit.exp_type are reduced with the
+        config overrides given by groupConfigOverride, a group mixing exp_types with the pipeline defaults.
 
         Note that by construction newVisitGroup is called after the end of newVisit, meaning that all related visits
         should already be ingested.
@@ -311,7 +332,7 @@ class DrpEngine:
         groupId : int or str
             Group identifier from IIC; currently used for bookkeeping/logging (not interpreted here).
         sequenceType : str
-            Type of the IIC sequence (e.g. 'scienceObject', 'arc', 'flat'); controls requireAdjustDetectorMap.
+            Type of the IIC sequence (e.g. 'scienceObject', 'arc', 'flat'); see groupConfigOverride.
         name : str
             Human-readable sequence name from IIC.
         comments : str
@@ -333,29 +354,25 @@ class DrpEngine:
                          f'sequenceType={sequenceType} name={name!r} comments={comments!r}')
 
         sql = (
-            'SELECT sps_visit.pfs_visit_id '
+            'SELECT sps_visit.pfs_visit_id, sps_visit.exp_type '
             'FROM visit_set INNER JOIN iic_sequence ON visit_set.iic_sequence_id = iic_sequence.iic_sequence_id '
             'INNER JOIN sps_visit ON visit_set.pfs_visit_id=sps_visit.pfs_visit_id '
             f'WHERE visit_set.iic_sequence_id = {sequenceId}'
         )
-        visitRows = opDB.fetchall(sql)  # expected like [(123,), (124,)] or [123, 124]
+        visitRows = opDB.fetchall(sql)  # numpy array of str, like [['123', 'arc'], ['124', 'arc']]
 
-        if not visitRows.any():
+        if not len(visitRows):
             self.logger.warning(f'Could not match any pfs_visit_id for iic_sequence_id {sequenceId}')
             return
 
-        # Normalize to a flat list of visit IDs
-        visitIds = [row[0] for row in visitRows]
+        expTypes = {int(vid): str(expType) for vid, expType in visitRows}
 
-        pfsVisits = []
         missing = []
         notIngested = []
 
-        for vid in visitIds:
+        for vid in expTypes:
             if vid in self.pfsVisits:
-                if self.pfsVisits[vid].isIngested:
-                    pfsVisits.append(self.pfsVisits[vid])
-                else:
+                if not self.pfsVisits[vid].isIngested:
                     notIngested.append(vid)
             else:
                 missing.append(vid)
@@ -370,19 +387,20 @@ class DrpEngine:
             return
 
         if self.groupVisit:
-            # adjusting requireAdjustDetectorMap on the fly, only forcing it for scienceObject.
-            requireAdjustDetectorMap = str(sequenceType) == 'scienceObject'
-            # pretty sure that overriding this is not actually the right design but okay for now.
-            quickCDS = str(sequenceType) not in ['scienceObject', 'masterDarks']
-            doNormalizeChiRms = str(sequenceType) != 'darks'
+            uniqueExpTypes = sorted(set(expTypes.values()))
 
-            configOverride = dict(reduceExposure={'requireAdjustDetectorMap': requireAdjustDetectorMap},
-                                  isr={'h4.quickCDS': quickCDS},
-                                  cosmicray={'doNormalizeChiRms': doNormalizeChiRms})
+            if len(uniqueExpTypes) == 1:
+                self.addConfigOverride(groupConfigOverride(uniqueExpTypes[0], str(sequenceType)))
+            else:
+                self.logger.warning(f'visitGroup ({sequenceId}) : mixed exp_type {uniqueExpTypes}, '
+                                    f'reducing without config override')
+                # an empty override marks the run as holding the pipeline defaults, so the next override rolls a new run.
+                if self.configOverride:
+                    self.newReduceRun(configOverride={})
+                else:
+                    self.addConfigOverride({})
 
-            self.addConfigOverride(configOverride)
-
-            self.processVisitGroup(pfsVisits)
+            self.processVisitGroup([self.pfsVisits[vid] for vid in expTypes])
 
     def processPfsVisit(self, pfsVisit):
         """
