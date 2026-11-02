@@ -9,6 +9,7 @@ from importlib import reload
 import drpActor.utils.engine as drpEngine
 from actorcore.Actor import Actor
 from drpActor.utils.files import CCDFile, HxFile, PfsConfigFile
+from drpActor.utils.hubLink import HubLink
 from ics.utils.sps.spectroIds import getSite
 from twisted.internet import reactor
 
@@ -37,9 +38,12 @@ class DrpActor(Actor):
                        configFile=configFile, modelNames=self.ccds + self.hxs + ['sps', 'iic'])
 
         self.everConnected = False
+        self.hubLink = HubLink(self, **self.actorConfig.get('hubLink', {}))
 
     def connectionMade(self):
         """Called when the actor connection has been established: wire in callbacks."""
+        self.hubLink.connectionMade()
+
         if self.everConnected is False:
 
             for ccd in self.ccds:
