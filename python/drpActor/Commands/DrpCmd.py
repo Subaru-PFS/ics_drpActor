@@ -125,7 +125,7 @@ class DrpCmd(object):
         cmd.finish()
 
     def reduce(self, cmd):
-        """Ingest file providing a filepath."""
+        """Reduce the data selected by where, in a new run."""
         cmdKeys = cmd.cmd.keywords
 
         where = cmdKeys["where"].values[0]
@@ -148,10 +148,13 @@ class DrpCmd(object):
 
         engine = self.getEngine(cmdKeys)
 
-        if configOverride:
-            engine.addConfigOverride(configOverride)
+        # a run skips data already reduced in it, so a new run is the only way to reduce it again.
+        engine.newReduceRun(configOverride=engine.mergedConfigOverride(configOverride))
+        returnCode = engine.runReductionPipeline(where=where)
 
-        engine.runReductionPipeline(where=where)
+        if returnCode != 0:
+            cmd.fail(f'text="pipetask failed with returnCode={returnCode}"')
+            return
 
         cmd.finish()
 

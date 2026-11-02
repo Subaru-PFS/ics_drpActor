@@ -9,12 +9,11 @@ import drpActor.utils.dotRoach as dotRoach
 reload(dotRoach)
 
 from lsst.daf.butler import Butler
-from lsst.daf.butler.registry import ConflictingDefinitionError
 from drpActor.utils.pfsVisit import PfsVisit
 from drpActor.utils.tasks.ingest import IngestHandler
-from lsst.pipe.base.separable_pipeline_executor import SeparablePipelineExecutor
-from lsst.pipe.base import Pipeline, ExecutionResources
+from lsst.pipe.base import Pipeline
 from drpActor.utils.chainedCollection import prepend_collection_chain
+from drpActor.utils.pipetask import pipetaskCommand, runPipetask, runIsInconsistent
 from ics.utils.opdb import opDB
 from lsst.daf.butler.cli.cliLog import CliLog
 
@@ -79,7 +78,7 @@ class DrpEngine:
     numProc : int
         Number of worker processes (quanta executed in parallel).
     taskThreads : int
-        Threads per quantum (ExecutionResources.num_cores); usually keep at 1.
+        Cores per quantum (pipetask -n); usually keep at 1.
     clobberOutput : bool
         If True, allow overwriting existing outputs in the run.
     lsstLog : dict
@@ -90,7 +89,7 @@ class DrpEngine:
 
     Notes
     -----
-    - `numProc` controls **process** parallelism at the executor level.
+    - `numProc` controls **process** parallelism (pipetask -j).
     - `taskThreads` controls **per-quantum** threading; keep 1 unless explicitly tuned.
     - When fail_fast is True, the first task failure stops further execution in the current run.
     """
@@ -132,11 +131,7 @@ class DrpEngine:
         self.butler = Butler(self.datastore, collections=[self.inputCollection, self.outputCollection])
 
         self.ingestHandler = IngestHandler(self)
-        self.reducePipeline, self.reduceButler, self.executor, self.timestamp = self.setupReducePipeline(datastore,
-                                                                                                         inputCollection,
-                                                                                                         outputCollection,
-                                                                                                         pipelineYaml,
-                                                                                                         taskThreads)
+        self.reducePipeline, self.timestamp = self.setupReducePipeline(datastore, outputCollection, pipelineYaml)
         self.condaEnv = os.environ.get("CONDA_DEFAULT_ENV")
 
     @property
@@ -218,51 +213,42 @@ class DrpEngine:
             self.logger.warning('Failed to load Butler: %s', self.actor.strTraceback(e))
             return None
 
-    def setupReducePipeline(self, datastore, inputCollection, chainedCollection, pipelineYaml, taskThreads=1):
+    def setupReducePipeline(self, datastore, chainedCollection, pipelineYaml):
         """
-        Set up the reduction pipeline and its executor.
+        Load the reduction pipeline and register a new timestamped output run at the head of the chain.
 
         Parameters
         ----------
         datastore : str
             Path to the datastore (Butler repo root/URI).
-        inputCollection : str
-            Name of the input collection.
         chainedCollection : str
             Name of the output chained collection (base of the run).
         pipelineYaml : str
             Path (relative to $PFS_INSTDATA_DIR/config) to the pipeline YAML.
-        taskThreads : int, optional
-            Threads per quantum (ExecutionResources.num_cores). Does not control process-level parallelism.
 
         Returns
         -------
         tuple
-            (pipeline, butler, executor, timestamp)
-
-        Notes
-        -----
-        - Use `self.numProc` later with `run_pipeline(..., num_proc=self.numProc)` to control process concurrency.
-        - `taskThreads` only affects intra-quantum threading; keep 1 when BLAS/OpenMP are pinned to 1.
+            (pipeline, timestamp), the run being chainedCollection/timestamp.
         """
-        # Load the reduction pipeline from YAML
-        pipeline = Pipeline.fromFile(os.path.join(os.getenv("PFS_INSTDATA_DIR"), 'config', pipelineYaml))
+        pipeline = Pipeline.fromFile(self.pipelinePath(pipelineYaml))
 
         # Append a timestamp to the output collection name
         timestamp = datetime.datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
         run = os.path.join(chainedCollection, timestamp)
 
-        # Initialize the Butler with the input and output collections
-        butler = Butler(datastore, collections=[inputCollection], run=run)
+        # a butler created with a run registers it.
+        Butler(datastore, run=run)
 
         # new run takes precedence over the previous ones.
         prepend_collection_chain(datastore, chainedCollection, run, logger=self.logger)
 
-        # Set up the pipeline executor for parallel processing
-        executor = SeparablePipelineExecutor(butler=butler, clobber_output=True,
-                                             resources=ExecutionResources(num_cores=taskThreads))
+        return pipeline, timestamp
 
-        return pipeline, butler, executor, timestamp
+    @staticmethod
+    def pipelinePath(pipelineYaml):
+        """Full path of a pipeline YAML given relative to $PFS_INSTDATA_DIR/config."""
+        return os.path.join(os.getenv("PFS_INSTDATA_DIR"), 'config', pipelineYaml)
 
     def newPfsConfig(self, pfsConfigFile):
         """
@@ -446,82 +432,115 @@ class DrpEngine:
         Notes
         -----
         - Process concurrency is controlled by self.numProc; per-quantum threading by self.taskThreads.
-        - Any pipeline exception is logged upstream; this method still attempts to finish all visits.
+        - The pipeline outcome is reported in reduceExposureStatus; all visits are finished regardless.
         """
         visitStr = ','.join(str(p.visit) for p in pfsVisits)
 
         self.logger.info(f'processVisitGroup started on {visitStr}')
         t0 = time.perf_counter()
-        self.runReductionPipeline(where=f"visit in ({visitStr})")
+        returnCode = self.runReductionPipeline(where=f"visit in ({visitStr})")
         t1 = time.perf_counter()
 
         cmd = self.actor.bcast
+        statusStr = 'OK' if returnCode == 0 else 'FAILED'
 
         for p in pfsVisits:
             p.finish()
-            cmd.inform(f'reduceExposureStatus={p.visit},0,"OK",{t1 - t0:.1f}')
-
+            cmd.inform(f'reduceExposureStatus={p.visit},{returnCode},"{statusStr}",{t1 - t0:.1f}')
 
     def runReductionPipeline(self, where, retry=True):
         """
-        Execute the reduction pipeline for a given visit.
+        Run the reduction pipeline on the selected data, in a pipetask subprocess extending the current run.
 
         Parameters
         ----------
         where : str
-            Query to filter the data for the specific visit.
+            Data query selecting what to reduce.
         retry : bool
-            Allow a single retry in a fresh run when the software versions no longer match the current one.
+            Allow a single retry in a new run when the current run holds other software versions or task
+            configs.
+
+        Returns
+        -------
+        returnCode : int
+            pipetask exit code, 0 on success, -1 if pipetask could not be run.
         """
+        run = os.path.join(self.outputCollection, self.timestamp)
+        # the pipeline only knows the overrides of its own tasks.
+        configOverride = {label: cfg for label, cfg in (self.configOverride or {}).items()
+                          if label in self.reducePipeline.task_labels}
+
+        cmd = pipetaskCommand(self.datastore, self.inputCollection, run, self.pipelinePath(self.pipelineYaml),
+                              where, configOverride=configOverride, numProc=self.numProc,
+                              taskThreads=self.taskThreads, failFast=self.fail_fast,
+                              clobberOutput=self.clobberOutput)
+
+        logDir = os.path.expandvars(self.actor.actorConfig['logging']['logdir'])
+        now = datetime.datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+        logFile = os.path.join(logDir, 'pipetask', self.timestamp, f'{now}.log')
+
+        self.logger.info(f'pipetask where="{where}" num_proc={self.numProc} fail_fast={self.fail_fast} '
+                         f'log={logFile}')
         try:
-            quantumGraph = self.executor.make_quantum_graph(pipeline=self.reducePipeline, where=where)
+            returnCode = runPipetask(cmd, logFile)
         except Exception as e:
             self.logger.exception(e)
-            return
+            return -1
 
-        try:
-            self.executor.pre_execute_qgraph(quantumGraph)
-        except ConflictingDefinitionError as e:
-            # A run holds a single packages dataset, so a conda package updated underneath the actor makes
-            # that run unusable, only a new one can record the new versions.
-            if not retry:
-                raise
+        self.logger.info(f'pipetask where="{where}" returned {returnCode}')
 
-            self.logger.warning(f'Software versions changed: {e}')
+        if returnCode != 0 and retry and runIsInconsistent(logFile):
+            # A run holds a single packages dataset and a single config per task, so a conda package updated
+            # underneath the actor makes that run unusable, only a new one can record the new versions.
+            self.logger.warning('Run holds other software versions or task configs, retrying in a new run.')
             self.newReduceRun(configOverride=self.configOverride)
-            self.runReductionPipeline(where, retry=False)
-            return
+            return self.runReductionPipeline(where, retry=False)
 
-        self.logger.info(f'run_pipeline where="{where}" num_proc={self.numProc} fail_fast={self.fail_fast}')
-        # passing down num_proc for the most recent version.
-        self.executor.run_pipeline(graph=quantumGraph, num_proc=self.numProc, fail_fast=self.fail_fast)
+        return returnCode
 
     def newReduceRun(self, configOverride=None):
         """
-        Create a new output run and rebuild the reduction pipeline and its executor.
+        Create a new output run and reload the reduction pipeline.
 
         Parameters
         ----------
         configOverride : dict, optional
-            Overrides to set on the pipeline, which is reloaded from yaml without any.
+            Overrides to apply in the new run, which starts without any.
         """
         self.logger.info('Creating new reduction run.')
 
-        (self.reducePipeline, self.reduceButler,
-         self.executor, self.timestamp) = self.setupReducePipeline(self.datastore,
-                                                                   self.inputCollection,
-                                                                   self.outputCollection,
-                                                                   self.pipelineYaml,
-                                                                   self.taskThreads)
+        self.reducePipeline, self.timestamp = self.setupReducePipeline(self.datastore, self.outputCollection,
+                                                                       self.pipelineYaml)
         self.configOverride = None
 
         if configOverride is not None:
             self.addConfigOverride(configOverride)
 
+    def mergedConfigOverride(self, configOverride):
+        """
+        The active config overrides updated with new ones, leaving the active ones untouched.
+
+        Parameters
+        ----------
+        configOverride : dict
+            {taskLabel: {configKey: value}}.
+
+        Returns
+        -------
+        merged : dict
+            {taskLabel: {configKey: value}}.
+        """
+        merged = {label: dict(cfg) for label, cfg in (self.configOverride or {}).items()}
+
+        for label, cfg in configOverride.items():
+            merged.setdefault(label, {}).update(cfg)
+
+        return merged
+
     def addConfigOverride(self, configOverride):
         """
-        Merge config overrides into the active ones and set them on the pipeline, creating a new run
-        whenever that changes the current configuration.
+        Merge config overrides into the active ones, creating a new run whenever that changes the current
+        configuration.
 
         Parameters
         ----------
@@ -529,10 +548,7 @@ class DrpEngine:
             {taskLabel: {configKey: value}}, only those keys are overridden, the ones already set keep
             their current value.
         """
-        merged = {label: dict(cfg) for label, cfg in (self.configOverride or {}).items()}
-
-        for label, cfg in configOverride.items():
-            merged.setdefault(label, {}).update(cfg)
+        merged = self.mergedConfigOverride(configOverride)
 
         if merged == self.configOverride:
             return
@@ -548,8 +564,7 @@ class DrpEngine:
                 if label not in self.reducePipeline.task_labels:
                     continue
 
-                self.reducePipeline.addConfigOverride(label, key=key, value=value)
-                self.logger.info(f'reducePipeline.addConfigOverride:{label} {key}={value}')
+                self.logger.info(f'config override:{label} {key}={value}')
 
         self.configOverride = merged
 
