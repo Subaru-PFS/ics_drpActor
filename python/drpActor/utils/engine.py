@@ -92,7 +92,8 @@ class DrpEngine:
     catchUpDelay : float
         Seconds between a connection to the hub and the catch-up it triggers.
     replayWindow : float
-        Seconds after a connection to the hub during which keyword events are ignored, as replayed values.
+        Seconds after a connection to the hub during which exposure, visit and sequence events are ignored, as
+        replayed values.
     lsstLog : dict
         LSST logging configuration (e.g., {"level": 10, "long_log": False}).
     detrendCallback : dict
@@ -298,10 +299,11 @@ class DrpEngine:
         return True
 
     def onPfsConfig(self, pfsConfigFile):
-        """Queue a new pfsConfig file on the ingest thread, see newPfsConfig."""
-        if self.isReplay(f'pfsConfig {pfsConfigFile.filepath}'):
-            return
+        """
+        Queue a new pfsConfig file on the ingest thread, see newPfsConfig.
 
+        Kept when replayed on connection, the last pfsConfig being often the one of the next visit.
+        """
         self.ingestThread.putMsg(self.newPfsConfig, pfsConfigFile=pfsConfigFile)
 
     def onExposure(self, exposureFile):
@@ -462,16 +464,16 @@ class DrpEngine:
         visits = sorted(expTypes)
         butler = self.queryButler()
         taken = catchUp.visitExposures(visits)
-        missing = catchUp.missingExposures(taken, catchUp.ingestedExposures(butler, self.rawRun, visits))
+        missing = self.missingData(butler, taken)
 
         if missing:
             for visit in sorted(missing):
                 self.ingestVisit(visit, cmd=cmd)
 
-            missing = catchUp.missingExposures(taken, catchUp.ingestedExposures(butler, self.rawRun, visits))
+            missing = self.missingData(butler, taken)
 
         if missing:
-            return skip(f'not ingested {sorted(missing)}')
+            return skip(f'not ingested {missing}')
 
         if not force:
             done = catchUp.reducedVisits(butler, self.outputCollection, visits) | self.reductionQueued
@@ -532,7 +534,8 @@ class DrpEngine:
 
     def onConnect(self):
         """
-        Ignore the keyword values the hub replays on connection, and queue a catch-up covering them.
+        Ignore the exposure, visit and sequence values the hub replays on connection, and queue a catch-up covering
+        them.
 
         The keyword values sent while disconnected are lost, and the replayed ones may describe a visit only in part.
         The catch-up waits catchUpDelay so that the exposures ending around the connection are past its settling
@@ -545,8 +548,8 @@ class DrpEngine:
         """
         Ingest the recent exposures the butler lacks, then queue the reduction of the visits not reduced yet.
 
-        The exposures opdb lists for the last hours are compared with the butler's raw datasets, those missing being
-        ingested from /data/raw. The fully ingested visits holding no reduction, see catchUp.reducedVisits, and not
+        The exposures opdb lists for the last hours are compared with the butler's raw and pfsConfig datasets, see
+        missingData, the visits lacking any being ingested from /data/raw. The fully ingested visits holding no reduction, see catchUp.reducedVisits, and not
         queued for one are then reduced if doAutoReduce: by finished IIC sequence when groupVisit, see
         reduceSequence, one by one otherwise.
 
@@ -561,14 +564,14 @@ class DrpEngine:
         butler = self.queryButler()
 
         taken = catchUp.takenExposures(lookback)
-        missing = catchUp.missingExposures(taken, catchUp.ingestedExposures(butler, self.rawRun, taken))
+        missing = self.missingData(butler, taken)
 
-        for visit, cams in sorted(missing.items()):
-            self.logger.info(f'catchUp: visit {visit} missing {sorted(cams)}')
+        for visit, items in sorted(missing.items()):
+            self.logger.info(f'catchUp: visit {visit} missing {items}')
             self.ingestVisit(visit, cmd=cmd)
 
         if missing:
-            missing = catchUp.missingExposures(taken, catchUp.ingestedExposures(butler, self.rawRun, taken))
+            missing = self.missingData(butler, taken)
 
             if missing:
                 self.logger.warning(f'catchUp: could not ingest {sorted(missing)}')
@@ -596,6 +599,31 @@ class DrpEngine:
             self.actor.bcast.inform(f'text="{text}"')
         else:
             cmd.finish(f'text="{text}"')
+
+    def missingData(self, butler, taken):
+        """
+        Raw exposures and pfsConfig files the butler lacks.
+
+        Parameters
+        ----------
+        butler : lsst.daf.butler.Butler
+            Butler.
+        taken : dict
+            {visit: {(arm, spectrograph)}} of the exposures expected.
+
+        Returns
+        -------
+        missing : dict
+            {visit: [item]} with items like 'b1', 'n3' or 'pfsConfig', visits lacking nothing being absent.
+        """
+        exposures = catchUp.missingExposures(taken, catchUp.ingestedExposures(butler, self.rawRun, taken))
+        missing = {visit: sorted(f'{arm}{spectrograph}' for arm, spectrograph in cams)
+                   for visit, cams in exposures.items()}
+
+        for visit in sorted(set(taken) - catchUp.ingestedPfsConfigs(butler, self.pfsConfigRun, taken)):
+            missing.setdefault(visit, []).append('pfsConfig')
+
+        return missing
 
     def ingestVisit(self, visit, cmd=None):
         """

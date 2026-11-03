@@ -122,14 +122,25 @@ class Worker(QThread):
             raise SystemExit()
 
     def logExceptions(self, method):
-        """Wrap method so that an exception it raises is logged with its traceback before propagating."""
+        """
+        Wrap method so that an exception it raises is logged with its traceback before propagating.
+
+        A command passed to method as its cmd argument is failed, unless already finished or the actor's bcast.
+        """
 
         @wraps(method)
         def wrapper(**argd):
             try:
                 return method(**argd)
-            except Exception:
-                self.actor.logger.exception(f'{self.name} thread: exception in {getattr(method, "__name__", method)}')
+            except Exception as e:
+                name = getattr(method, "__name__", method)
+                self.actor.logger.exception(f'{self.name} thread: exception in {name}')
+
+                cmd = argd.get('cmd')
+                if cmd is not None and cmd is not getattr(self.actor, 'bcast', None) and cmd.alive:
+                    reason = str(e).replace('"', "'")
+                    cmd.fail(f'text="{name} failed: {reason}"')
+
                 raise
 
         return wrapper

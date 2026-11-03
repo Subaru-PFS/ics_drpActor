@@ -133,7 +133,8 @@ class DrpCmd(object):
         """Reduce the data selected by where."""
         cmdKeys = cmd.cmd.keywords
 
-        where = cmdKeys["where"].values[0]
+        # a plain str, opscore's String does not pickle into the reduction's child process.
+        where = str(cmdKeys["where"].values[0])
 
         # Allow users to write string literals with double quotes inside the actor-quoted where:
         # where="'arm in (\"b\", \"r\")'"
@@ -158,14 +159,14 @@ class DrpCmd(object):
     def reduceGroup(self, cmd):
         """Reduce the visits of an IIC sequence as one group, even if already reduced."""
         cmdKeys = cmd.cmd.keywords
-        sequenceId = cmdKeys['sequenceId'].values[0]
+        sequenceId = int(cmdKeys['sequenceId'].values[0])
 
         self.engine.ingestThread.putMsg(self.engine.reduceSequence, sequenceId=sequenceId, force=True, cmd=cmd)
 
     def catchUp(self, cmd):
         """Ingest and reduce the recent visits left behind."""
         cmdKeys = cmd.cmd.keywords
-        lookback = cmdKeys['lookback'].values[0] if 'lookback' in cmdKeys else None
+        lookback = float(cmdKeys['lookback'].values[0]) if 'lookback' in cmdKeys else None
 
         self.engine.ingestThread.putMsg(self.engine.catchUpVisits, lookback=lookback, cmd=cmd)
 
