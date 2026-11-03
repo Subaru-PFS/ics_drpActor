@@ -120,6 +120,38 @@ def missingExposures(taken, ingested):
     return {visit: cams for visit, cams in missing.items() if cams}
 
 
+def ingestedPfsConfigs(butler, collection, visits):
+    """
+    Visits whose pfsConfig the butler holds.
+
+    Parameters
+    ----------
+    butler : lsst.daf.butler.Butler
+        Butler.
+    collection : str
+        Collection of the pfsConfig datasets.
+    visits : iterable of int
+        Visits.
+
+    Returns
+    -------
+    visits : set of int
+        Visits holding a pfsConfig.
+    """
+    visits = sorted(set(visits))
+
+    if not visits:
+        return set()
+
+    try:
+        refs = butler.registry.queryDatasets('pfsConfig', collections=collection, instrument='PFS',
+                                             where=f'visit IN ({",".join(map(str, visits))})')
+        return {ref.dataId['visit'] for ref in refs}
+    # a repo where no pfsConfig was ever ingested.
+    except MissingDatasetTypeError:
+        return set()
+
+
 def reducedVisits(butler, collection, visits, datasetType='postISRCCD'):
     """
     Visits holding a dataset of the given type, marking them reduced.
