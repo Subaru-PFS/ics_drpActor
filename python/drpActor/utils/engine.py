@@ -9,6 +9,8 @@ import drpActor.utils.dotRoach as dotRoach
 reload(dotRoach)
 
 from lsst.daf.butler import Butler
+import drpActor.utils.catchUp as catchUp
+from drpActor.utils.files import visitFiles
 from drpActor.utils.pfsVisit import PfsVisit
 from drpActor.utils.tasks.ingest import IngestHandler
 from lsst.pipe.base import Pipeline
@@ -85,6 +87,12 @@ class DrpEngine:
     timeout : dict or None
         Keyword arguments of reductionTimeout ({"base": seconds, "perVisit": seconds}), a reduction running longer
         than its visits allow being killed, None to never kill it.
+    lookback : float
+        Hours catchUpVisits looks back.
+    catchUpDelay : float
+        Seconds between a connection to the hub and the catch-up it triggers.
+    replayWindow : float
+        Seconds after a connection to the hub during which keyword events are ignored, as replayed values.
     lsstLog : dict
         LSST logging configuration (e.g., {"level": 10, "long_log": False}).
     detrendCallback : dict
@@ -100,7 +108,7 @@ class DrpEngine:
 
     def __init__(self, actor, datastore, rawRun, pfsConfigRun, inputCollection, outputCollection, ingestMode,
                  pipelineYaml, groupVisit, fail_fast, numProc, taskThreads, clobberOutput, lsstLog, detrendCallback,
-                 timeout=None):
+                 timeout=None, lookback=24, catchUpDelay=120, replayWindow=5):
         """Lightweight init; heavy setup happens in dedicated methods."""
         self.actor = actor  # actor-provided logger/config access
         self.datastore = datastore  # butler repo root/URI
@@ -118,6 +126,10 @@ class DrpEngine:
         self.taskThreads = taskThreads
         self.clobberOutput = clobberOutput
         self.timeout = timeout
+        self.lookback = lookback
+        self.catchUpDelay = catchUpDelay
+        self.replayWindow = replayWindow
+        self.replayEnds = 0  # time.monotonic() until which keyword events are ignored.
         self.lsstLog = lsstLog if lsstLog is not None else {}
         self.detrendCallback = detrendCallback
         self.doGenDetrendKey = detrendCallback.get('activated', False)
@@ -126,6 +138,7 @@ class DrpEngine:
         self.rawButler = None  # butler for raw/ingest operations
         self.dotRoach = None
         self.configOverride = None  # no config override yet.
+        self.reductionQueued = set()  # visits queued on the reduction thread, or being reduced.
 
         # Enable auto-ingest and auto-reduction by default
         self.doAutoIngest = True
@@ -180,6 +193,12 @@ class DrpEngine:
         clobberOutput = execution.get('clobberOutput')
         timeout = execution.get('timeout')
 
+        # catch-up
+        catchUp = siteConfig.get('catchUp', {})
+        lookback = catchUp.get('lookback', 24)
+        catchUpDelay = catchUp.get('delay', 120)
+        replayWindow = catchUp.get('replayWindow', 5)
+
         # opdb
         opdbHost = siteConfig.get('opdb').get('host')
         opDB.host = opdbHost
@@ -203,7 +222,10 @@ class DrpEngine:
                    clobberOutput=clobberOutput,
                    lsstLog=lsstLog,
                    detrendCallback=detrendCallback,
-                   timeout=timeout)
+                   timeout=timeout,
+                   lookback=lookback,
+                   catchUpDelay=catchUpDelay,
+                   replayWindow=replayWindow)
 
     def loadButler(self, run):
         """
@@ -267,12 +289,26 @@ class DrpEngine:
         self.ingestThread.exit()
         self.reduceThread.exit()
 
+    def isReplay(self, event):
+        """Whether a keyword event comes within replayWindow of a connection to the hub, logging it if so."""
+        if time.monotonic() >= self.replayEnds:
+            return False
+
+        self.logger.info(f'ignoring replayed {event}')
+        return True
+
     def onPfsConfig(self, pfsConfigFile):
         """Queue a new pfsConfig file on the ingest thread, see newPfsConfig."""
+        if self.isReplay(f'pfsConfig {pfsConfigFile.filepath}'):
+            return
+
         self.ingestThread.putMsg(self.newPfsConfig, pfsConfigFile=pfsConfigFile)
 
     def onExposure(self, exposureFile):
         """Queue a new exposure file on the ingest thread, see newExposure."""
+        if self.isReplay(f'exposure {exposureFile.filepath}'):
+            return
+
         self.ingestThread.putMsg(self.newExposure, exposureFile=exposureFile)
 
     def onVisit(self, visit, delay=0.2):
@@ -281,6 +317,9 @@ class DrpEngine:
 
         The delay lets the keywords of the visit's last files, which come from other actors, be queued first.
         """
+        if self.isReplay(f'visit {visit}'):
+            return
+
         self.ingestThread.putMsgLater(delay, self.newVisit, visit=visit)
 
     def onVisitGroup(self, sequenceId, groupId, sequenceType, name, comments, cmdStr, status, output, delay=0.5):
@@ -289,6 +328,9 @@ class DrpEngine:
 
         The delay lets the sequence's last visit be queued first.
         """
+        if self.isReplay(f'iic_sequence {sequenceId}'):
+            return
+
         self.ingestThread.putMsgLater(delay, self.newVisitGroup, sequenceId=sequenceId, groupId=groupId,
                                       sequenceType=sequenceType, name=name, comments=comments, cmdStr=cmdStr,
                                       status=status, output=output)
@@ -344,34 +386,26 @@ class DrpEngine:
 
     def newVisitGroup(self, sequenceId, groupId, sequenceType, name, comments, cmdStr, status, output):
         """
-        Resolve an IIC sequence into PFS visits, check ingestion state, and optionally queue the group reduction.
-
-        The method queries opDB for all pfs_visit_id belonging to the given iic_sequence_id, verifies that each visit
-        exists in self.pfsVisits and is already ingested, then, if self.groupVisit is True, queues the reduction of
-        the set on the reduction thread, see reduceVisitGroup. Visits sharing a single sps_visit.exp_type are reduced
-        with the config overrides given by groupConfigOverride, a group mixing exp_types with the pipeline defaults.
-
-        Note that by construction newVisitGroup is called after the end of newVisit, meaning that all related visits
-        should already be ingested.
+        Queue the group reduction of a finished IIC sequence when groupVisit, see reduceSequence.
 
         Parameters
         ----------
         sequenceId : int or str
-            iic_sequence.iic_sequence_id to resolve into one or more pfs_visit_id entries. Cast to int internally.
+            iic_sequence.iic_sequence_id. Cast to int internally.
         groupId : int or str
-            Group identifier from IIC; currently used for bookkeeping/logging (not interpreted here).
+            Group identifier from IIC, logged only.
         sequenceType : str
             Type of the IIC sequence (e.g. 'scienceObject', 'arc', 'flat'); see groupConfigOverride.
         name : str
-            Human-readable sequence name from IIC.
+            Human-readable sequence name from IIC, logged only.
         comments : str
-            Free-form comment string associated with the sequence.
+            Free-form comment string associated with the sequence, logged only.
         cmdStr : str
-            Original IIC command string that created the sequence.
+            Original IIC command string that created the sequence, not interpreted.
         status : str
-            Sequence status as reported by IIC (e.g. 'DONE', 'FAILED'); currently not interpreted here.
+            Sequence status as reported by IIC, not interpreted.
         output : dict or Any
-            Additional output payload from IIC; currently passed through unchanged.
+            Additional output payload from IIC, not interpreted.
         """
         try:
             sequenceId = int(sequenceId)
@@ -382,51 +416,84 @@ class DrpEngine:
         self.logger.info(f'New iic_sequence sequenceId={sequenceId} groupId={groupId} '
                          f'sequenceType={sequenceType} name={name!r} comments={comments!r}')
 
-        sql = (
-            'SELECT sps_visit.pfs_visit_id, sps_visit.exp_type '
-            'FROM visit_set INNER JOIN iic_sequence ON visit_set.iic_sequence_id = iic_sequence.iic_sequence_id '
-            'INNER JOIN sps_visit ON visit_set.pfs_visit_id=sps_visit.pfs_visit_id '
-            f'WHERE visit_set.iic_sequence_id = {sequenceId}'
-        )
-        visitRows = opDB.fetchall(sql)  # numpy array of str, like [['123', 'arc'], ['124', 'arc']]
+        if self.groupVisit:
+            self.reduceSequence(sequenceId, sequenceType=str(sequenceType))
 
-        if not len(visitRows):
-            self.logger.warning(f'Could not match any pfs_visit_id for iic_sequence_id {sequenceId}')
-            return
+    def reduceSequence(self, sequenceId, sequenceType=None, force=False, cmd=None):
+        """
+        Queue the reduction of an IIC sequence's visits as one group, ingesting first the ones the butler lacks.
 
-        expTypes = {int(vid): str(expType) for vid, expType in visitRows}
+        The group is skipped with a warning if any of its visits cannot be fully ingested, or, unless force, if all
+        its visits are already reduced or queued for reduction. Visits sharing a single sps_visit.exp_type are
+        reduced with the config overrides given by groupConfigOverride, a group mixing exp_types with the pipeline
+        defaults.
 
-        missing = []
-        notIngested = []
+        Parameters
+        ----------
+        sequenceId : int
+            iic_sequence.iic_sequence_id.
+        sequenceType : str, optional
+            iic_sequence.sequence_type, looked up in opdb if None.
+        force : bool
+            Reduce the group even if all its visits are already reduced.
+        cmd : actorcore.Command, optional
+            Command receiving the statuses and finished with the outcome of the reduction.
 
-        for vid in expTypes:
-            if vid in self.pfsVisits:
-                if not self.pfsVisits[vid].isIngested:
-                    notIngested.append(vid)
-            else:
-                missing.append(vid)
+        Returns
+        -------
+        queued : bool
+            True if the reduction was queued.
+        """
+
+        def skip(text):
+            self.logger.warning(f'visitGroup ({sequenceId}) : {text}')
+            if cmd is not None:
+                cmd.fail(f'text="visitGroup ({sequenceId}) : {text}"')
+            return False
+
+        expTypes = catchUp.sequenceVisits(sequenceId)
+
+        if not expTypes:
+            return skip('no SPS visit')
+
+        if sequenceType is None:
+            sequenceType = catchUp.sequenceType(sequenceId)
+
+        visits = sorted(expTypes)
+        butler = self.queryButler()
+        taken = catchUp.visitExposures(visits)
+        missing = catchUp.missingExposures(taken, catchUp.ingestedExposures(butler, self.rawRun, visits))
 
         if missing:
-            self.logger.warning(
-                f'visitGroup ({sequenceId}) : Could not match all related visits in PfsVisit dictionary; missing {missing}')
-            return
+            for visit in sorted(missing):
+                self.ingestVisit(visit, cmd=cmd)
 
-        if notIngested:
-            self.logger.warning(f'visitGroup ({sequenceId}) : Following PfsVisit are not ingested {notIngested}')
-            return
+            missing = catchUp.missingExposures(taken, catchUp.ingestedExposures(butler, self.rawRun, visits))
 
-        if self.groupVisit:
-            uniqueExpTypes = sorted(set(expTypes.values()))
-            configOverride = None
+        if missing:
+            return skip(f'not ingested {sorted(missing)}')
 
-            if len(uniqueExpTypes) == 1:
-                configOverride = groupConfigOverride(uniqueExpTypes[0], str(sequenceType))
-            else:
-                self.logger.warning(f'visitGroup ({sequenceId}) : mixed exp_type {uniqueExpTypes}, '
-                                    f'reducing without config override')
+        if not force:
+            done = catchUp.reducedVisits(butler, self.outputCollection, visits) | self.reductionQueued
 
-            self.reduceThread.putMsg(self.reduceVisitGroup, pfsVisits=[self.pfsVisits[vid] for vid in expTypes],
-                                     configOverride=configOverride)
+            if set(visits) <= done:
+                self.logger.info(f'visitGroup ({sequenceId}) : already reduced or queued')
+                if cmd is not None:
+                    cmd.finish(f'text="visitGroup ({sequenceId}) : already reduced or queued"')
+                return False
+
+        uniqueExpTypes = sorted(set(expTypes.values()))
+        configOverride = None
+
+        if len(uniqueExpTypes) == 1:
+            configOverride = groupConfigOverride(uniqueExpTypes[0], str(sequenceType))
+        else:
+            self.logger.warning(f'visitGroup ({sequenceId}) : mixed exp_type {uniqueExpTypes}, '
+                                f'reducing without config override')
+
+        self.reductionQueued.update(visits)
+        self.reduceThread.putMsg(self.reduceVisitGroup, visits=visits, configOverride=configOverride, cmd=cmd)
+        return True
 
     def processPfsVisit(self, pfsVisit):
         """
@@ -441,7 +508,8 @@ class DrpEngine:
             self.ingestHandler.doIngest(pfsVisit)
 
         if pfsVisit.isIngested and not self.groupVisit:
-            if self.doAutoReduce:
+            if self.doAutoReduce and self.isUnreduced(pfsVisit.visit):
+                self.reductionQueued.add(pfsVisit.visit)
                 self.reduceThread.putMsg(self.reduceVisit, pfsVisit=pfsVisit)
 
             # run roaches ! run !
@@ -451,18 +519,113 @@ class DrpEngine:
         # Just declaring that visit should be processed, just a placeholder for now.
         pfsVisit.finish()
 
-    def ingestCommand(self, cmd, pfsConfigFile, exposureFiles):
+    def isUnreduced(self, visit):
+        """Whether a visit is neither reduced, see catchUp.reducedVisits, nor queued for reduction."""
+        if visit in self.reductionQueued:
+            return False
+
+        return not catchUp.reducedVisits(self.queryButler(), self.outputCollection, [visit])
+
+    def queryButler(self):
+        """A new butler on the datastore, for registry queries."""
+        return Butler(self.datastore)
+
+    def onConnect(self):
         """
-        Register and ingest the files of one visit given by a command.
+        Ignore the keyword values the hub replays on connection, and queue a catch-up covering them.
+
+        The keyword values sent while disconnected are lost, and the replayed ones may describe a visit only in part.
+        The catch-up waits catchUpDelay so that the exposures ending around the connection are past its settling
+        time, see catchUpVisits.
+        """
+        self.replayEnds = time.monotonic() + self.replayWindow
+        self.ingestThread.putMsgLater(self.catchUpDelay, self.catchUpVisits)
+
+    def catchUpVisits(self, lookback=None, cmd=None):
+        """
+        Ingest the recent exposures the butler lacks, then queue the reduction of the visits not reduced yet.
+
+        The exposures opdb lists for the last hours are compared with the butler's raw datasets, those missing being
+        ingested from /data/raw. The fully ingested visits holding no reduction, see catchUp.reducedVisits, and not
+        queued for one are then reduced if doAutoReduce: by finished IIC sequence when groupVisit, see
+        reduceSequence, one by one otherwise.
 
         Parameters
         ----------
-        cmd : actorcore.Command
-            Command receiving the ingest status.
+        lookback : float, optional
+            Hours to look back, self.lookback if None.
+        cmd : actorcore.Command, optional
+            Command receiving the statuses and finished with a summary, the actor's bcast if None.
+        """
+        lookback = self.lookback if lookback is None else lookback
+        butler = self.queryButler()
+
+        taken = catchUp.takenExposures(lookback)
+        missing = catchUp.missingExposures(taken, catchUp.ingestedExposures(butler, self.rawRun, taken))
+
+        for visit, cams in sorted(missing.items()):
+            self.logger.info(f'catchUp: visit {visit} missing {sorted(cams)}')
+            self.ingestVisit(visit, cmd=cmd)
+
+        if missing:
+            missing = catchUp.missingExposures(taken, catchUp.ingestedExposures(butler, self.rawRun, taken))
+
+            if missing:
+                self.logger.warning(f'catchUp: could not ingest {sorted(missing)}')
+
+        nQueued = 0
+
+        if self.doAutoReduce:
+            complete = set(taken) - set(missing)
+            unreduced = complete - catchUp.reducedVisits(butler, self.outputCollection, complete) - self.reductionQueued
+
+            if self.groupVisit:
+                for sequenceId, sequenceType in sorted(catchUp.finishedSequences(unreduced).items()):
+                    nQueued += self.reduceSequence(sequenceId, sequenceType=sequenceType)
+            else:
+                for visit in sorted(unreduced):
+                    self.reductionQueued.add(visit)
+                    self.reduceThread.putMsg(self.processVisitGroup, visits=[visit])
+                    nQueued += 1
+
+        text = (f'catchUp over {lookback}h: {len(taken)} visits, {len(missing)} left not ingested, '
+                f'{nQueued} reductions queued')
+        self.logger.info(text)
+
+        if cmd is None:
+            self.actor.bcast.inform(f'text="{text}"')
+        else:
+            cmd.finish(f'text="{text}"')
+
+    def ingestVisit(self, visit, cmd=None):
+        """
+        Ingest the files of a visit found in /data/raw, see ingestFiles, logging a failure rather than raising it.
+
+        Parameters
+        ----------
+        visit : int
+            Visit.
+        cmd : actorcore.Command, optional
+            Command receiving the ingest status, the actor's bcast if None.
+        """
+        try:
+            pfsConfigFile, exposureFiles = visitFiles(visit)
+            self.ingestFiles(pfsConfigFile, exposureFiles, cmd=cmd)
+        except Exception:
+            self.logger.exception(f'visit {visit}: ingest failed')
+
+    def ingestFiles(self, pfsConfigFile, exposureFiles, cmd=None):
+        """
+        Register and ingest the files of one visit.
+
+        Parameters
+        ----------
         pfsConfigFile : PfsConfigFile
             The visit's pfsConfig file.
         exposureFiles : list of PfsFile
             The visit's exposure files.
+        cmd : actorcore.Command, optional
+            Command receiving the ingest status, the actor's bcast if None.
         """
         self.newPfsConfig(pfsConfigFile)
 
@@ -484,18 +647,20 @@ class DrpEngine:
         if self.doGenDetrendKey:
             pfsVisit.setupDetrendCallback(self)
 
-        self.processVisitGroup([pfsVisit])
+        self.processVisitGroup([pfsVisit.visit])
 
-    def reduceVisitGroup(self, pfsVisits, configOverride=None):
+    def reduceVisitGroup(self, visits, configOverride=None, cmd=None):
         """
         Reduce a group of ingested visits with the given config overrides, see processVisitGroup.
 
         Parameters
         ----------
-        pfsVisits : list[PfsVisit]
+        visits : list of int
             Visits to reduce together.
         configOverride : dict, optional
             {taskLabel: {configKey: value}}, None for the pipeline defaults.
+        cmd : actorcore.Command, optional
+            Command finished with the outcome of the reduction.
         """
         if configOverride is not None:
             self.addConfigOverride(configOverride)
@@ -505,7 +670,16 @@ class DrpEngine:
         else:
             self.addConfigOverride({})
 
-        self.processVisitGroup(pfsVisits)
+        status = self.processVisitGroup(visits)
+
+        if cmd is None:
+            return
+
+        if status != 'ok':
+            cmd.fail(f'text="reduction {status}"')
+            return
+
+        cmd.finish()
 
     def reduceCommand(self, cmd, where, configOverride):
         """
@@ -531,37 +705,44 @@ class DrpEngine:
 
         cmd.finish()
 
-    def processVisitGroup(self, pfsVisits):
+    def processVisitGroup(self, visits):
         """
-        Reduce a group of already ingested PFS visits in one pipeline execution and finalize them.
-
-        The input visits are assumed to exist in self.pfsVisits and be marked ingested.
-        The method logs the visit IDs, runs the reduction pipeline once with a "visit in (...)" WHERE clause, then
-        calls finish() on each PfsVisit regardless of pipeline outcome.
+        Reduce a group of already ingested visits in one pipeline execution and report the outcome per visit.
 
         Parameters
         ----------
-        pfsVisits : list[PfsVisit]
+        visits : list of int
             Visits to process together.
+
+        Returns
+        -------
+        status : str
+            Outcome of the reduction, see runReductionPipeline.
 
         Notes
         -----
         - Process concurrency is controlled by self.numProc; per-quantum threading by self.taskThreads.
-        - The pipeline outcome is reported in reduceExposureStatus; all visits are finished regardless.
+        - The pipeline outcome is reported in reduceExposureStatus for each visit.
         """
-        visitStr = ','.join(str(p.visit) for p in pfsVisits)
+        visitStr = ','.join(str(visit) for visit in visits)
 
         self.logger.info(f'processVisitGroup started on {visitStr}')
         t0 = time.perf_counter()
-        status = self.runReductionPipeline(where=f"visit in ({visitStr})")
+
+        try:
+            status = self.runReductionPipeline(where=f"visit in ({visitStr})")
+        finally:
+            self.reductionQueued.difference_update(visits)
+
         t1 = time.perf_counter()
 
         cmd = self.actor.bcast
         returnCode, statusStr = (0, 'OK') if status == 'ok' else (1, status.upper())
 
-        for p in pfsVisits:
-            p.finish()
-            cmd.inform(f'reduceExposureStatus={p.visit},{returnCode},"{statusStr}",{t1 - t0:.1f}')
+        for visit in visits:
+            cmd.inform(f'reduceExposureStatus={visit},{returnCode},"{statusStr}",{t1 - t0:.1f}')
+
+        return status
 
     def runReductionPipeline(self, where, retry=True):
         """

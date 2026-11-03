@@ -2,6 +2,7 @@ import glob
 import os
 import time
 
+import drpActor.utils.drpParsing as drpParsing
 from drpActor.utils.threading import singleShot
 from ics.utils.sps.spectroIds import SpectroIds
 
@@ -59,7 +60,7 @@ class PfsConfigFile:
         -----
         Sets `self.ingested` to True if the pfsConfig file is found in the datastore.
         """
-        self.ingested = len(list(butler.registry.queryDatasets("pfsConfig", **self.dataId))) == 1
+        self.ingested = len(list(butler.registry.queryDatasets("pfsConfig", instrument='PFS', **self.dataId))) == 1
 
 
 class PfsFile:
@@ -150,7 +151,7 @@ class PfsFile:
         -----
         Sets `self.ingested` to True if the raw file is found in the datastore.
         """
-        self.ingested = len(list(butler.registry.queryDatasets("raw", **self.dataId))) == 1
+        self.ingested = len(list(butler.registry.queryDatasets("raw", instrument='PFS', **self.dataId))) == 1
 
     def getPostIsrFilepath(self, engine):
         """
@@ -282,3 +283,41 @@ class HxFile(PfsFile):
             Always returns False since Hx data is not windowed.
         """
         return False
+
+
+def visitFiles(visit, spectrograph=None, arms=None):
+    """
+    Files of a visit found in /data/raw.
+
+    Parameters
+    ----------
+    visit : int
+        Visit.
+    spectrograph : str, optional
+        Spectrographs separated by '^', all if None.
+    arms : str, optional
+        Arms separated by '^', all if None.
+
+    Returns
+    -------
+    pfsConfigFile : PfsConfigFile
+        The visit's pfsConfig file.
+    exposureFiles : list of PfsFile
+        The visit's exposure files, CCDFile or HxFile.
+
+    Raises
+    ------
+    RuntimeError
+        If the visit's pfsConfig file is not found.
+    """
+    pfsConfigPath, pattern = drpParsing.makeVisitPattern(visit, spectrograph=spectrograph, arms=arms)
+    exposureFiles = []
+
+    for filepath in sorted(glob.glob(pattern)):
+        rootNightType, fname = os.path.split(filepath)
+        rootNight, fitsType = os.path.split(rootNightType)
+        root, night = os.path.split(rootNight)
+        File = HxFile if fitsType == 'ramps' else CCDFile
+        exposureFiles.append(File(root, night, fname))
+
+    return PfsConfigFile(visit, filepath=pfsConfigPath), exposureFiles

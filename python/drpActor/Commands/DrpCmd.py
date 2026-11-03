@@ -1,4 +1,3 @@
-import glob
 import os
 from importlib import reload
 
@@ -6,7 +5,7 @@ import drpActor.utils.dotRoach as dotRoach
 import drpActor.utils.drpParsing as drpParsing
 import opscore.protocols.keys as keys
 import opscore.protocols.types as types
-from drpActor.utils.files import CCDFile, HxFile, PfsConfigFile
+from drpActor.utils.files import visitFiles
 
 reload(dotRoach)
 
@@ -30,6 +29,8 @@ class DrpCmd(object):
 
             ('ingest', '<visit> [<spectrograph>] [<arm>] [@(newEngine)]', self.ingest),
             ('reduce', '<where> [<skipRequireAdjustDetectorMap>] [<quickCDS>]', self.reduce),
+            ('reduceGroup', '<sequenceId>', self.reduceGroup),
+            ('catchUp', '[<lookback>]', self.catchUp),
 
             ('startDotRoach', '<dataRoot> <maskFile> <cams> [@(keepMoving)]', self.startDotRoach),
             ('stopDotRoach', '', self.stopDotRoach),
@@ -68,6 +69,9 @@ class DrpCmd(object):
                                         keys.Key("quickCDS", types.Bool('False', 'True'),
                                                  help="set isr.h4.quickCDS to that value, left untouched if "
                                                       "not provided"),
+                                        keys.Key("sequenceId", types.Int(), help="iic_sequence_id"),
+                                        keys.Key("lookback", types.Float(),
+                                                 help="hours to look back, the configured value if not provided"),
                                         )
 
     @property
@@ -113,23 +117,13 @@ class DrpCmd(object):
 
         for visit in visitList:
             try:
-                pfsConfigPath, pattern = drpParsing.makeVisitPattern(visit, spectrograph=spectrograph, arms=arms)
+                pfsConfigFile, exposureFiles = visitFiles(visit, spectrograph=spectrograph, arms=arms)
             except RuntimeError:
                 cmd.warn(f'text="{visit} not found..."')
                 continue
 
-            exposureFiles = []
-
-            for filepath in glob.glob(pattern):
-                rootNightType, fname = os.path.split(filepath)
-                rootNight, fitsType = os.path.split(rootNightType)
-                root, night = os.path.split(rootNight)
-                File = HxFile if fitsType == 'ramps' else CCDFile
-                exposureFiles.append(File(root, night, fname))
-
-            engine.ingestThread.putMsg(engine.ingestCommand, cmd=cmd,
-                                       pfsConfigFile=PfsConfigFile(visit, filepath=pfsConfigPath),
-                                       exposureFiles=exposureFiles)
+            engine.ingestThread.putMsg(engine.ingestFiles, pfsConfigFile=pfsConfigFile, exposureFiles=exposureFiles,
+                                       cmd=cmd)
 
         # queued after the ingests, so finishing once they are done.
         engine.ingestThread.putMsg(cmd.finish)
@@ -160,6 +154,20 @@ class DrpCmd(object):
         engine = self.getEngine(cmdKeys)
         engine.reduceThread.putMsg(engine.reduceCommand, cmd=cmd, where=where, configOverride=configOverride)
         self.releaseEngine(engine, cmdKeys)
+
+    def reduceGroup(self, cmd):
+        """Reduce the visits of an IIC sequence as one group, even if already reduced."""
+        cmdKeys = cmd.cmd.keywords
+        sequenceId = cmdKeys['sequenceId'].values[0]
+
+        self.engine.ingestThread.putMsg(self.engine.reduceSequence, sequenceId=sequenceId, force=True, cmd=cmd)
+
+    def catchUp(self, cmd):
+        """Ingest and reduce the recent visits left behind."""
+        cmdKeys = cmd.cmd.keywords
+        lookback = cmdKeys['lookback'].values[0] if 'lookback' in cmdKeys else None
+
+        self.engine.ingestThread.putMsg(self.engine.catchUpVisits, lookback=lookback, cmd=cmd)
 
     def startDotRoach(self, cmd):
         """ Start dot loop. """

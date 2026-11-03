@@ -31,9 +31,11 @@ class IngestHandler(object):
         return PfsRawIngestTask(config=config, butler=self.engine.rawButler)
 
     def ingestPfsConfig(self, pfsVisit):
-        """Ingest a pfsConfig file if not already ingested."""
+        """Ingest a pfsConfig file if the butler does not hold it yet."""
+        pfsVisit.pfsConfigFile.initialize(self.engine.pfsConfigButler)
+
         if pfsVisit.pfsConfigFile.ingested:
-            self.engine.logger.warning(f'{pfsVisit.pfsConfigFile.filepath} already ingested.')
+            self.engine.logger.warning(f'pfsConfig already ingested for visit {pfsVisit.visit}.')
             return
 
         if pfsVisit.pfsConfigFile.filepath is None:
@@ -57,14 +59,17 @@ class IngestHandler(object):
         pfsVisit.pfsConfigFile.initialize(self.engine.pfsConfigButler)
 
     def ingestExposureFiles(self, pfsVisit):
-        """Ingest all exposure files for the given visit."""
+        """Ingest the exposure files of the given visit that the butler does not hold yet."""
+        for file in pfsVisit.exposureFiles:
+            file.initialize(self.engine.rawButler)
+
         toIngest = [file for file in pfsVisit.exposureFiles if not file.ingested]
 
         if not toIngest:
             self.engine.logger.warning(f'Exposure files already ingested for visit {pfsVisit.visit}.')
             return 0
 
-        pathList = [file.filepath for file in pfsVisit.exposureFiles]
+        pathList = [file.filepath for file in toIngest]
         totalBytes = sum(os.path.getsize(path) for path in pathList)
         totalMB = totalBytes / 2 ** 20
 
