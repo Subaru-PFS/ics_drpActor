@@ -40,8 +40,11 @@ class DrpActor(Actor):
         self.hubLink = HubLink(self, **self.actorConfig.get('hubLink', {}))
 
     def connectionMade(self):
-        """Called when the actor connection has been established: wire in callbacks."""
+        """Called when the actor connection has been established: wire in callbacks, catch up on missed visits."""
         self.hubLink.connectionMade()
+
+        if self.engine is not None:
+            self.engine.onConnect()
 
         if self.everConnected is False:
 
