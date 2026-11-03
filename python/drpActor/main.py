@@ -11,7 +11,6 @@ from actorcore.Actor import Actor
 from drpActor.utils.files import CCDFile, HxFile, PfsConfigFile
 from drpActor.utils.hubLink import HubLink
 from ics.utils.sps.spectroIds import getSite
-from twisted.internet import reactor
 
 
 class DrpActor(Actor):
@@ -67,7 +66,10 @@ class DrpActor(Actor):
 
     def reloadConfiguration(self, cmd):
         """ reload butler"""
-        self.engine = self.loadDrpEngine()
+        previous, self.engine = self.engine, self.loadDrpEngine()
+
+        if previous is not None:
+            previous.stop()
 
     def ccdFilepath(self, keyvar):
         """ CCD Filepath callback"""
@@ -79,7 +81,7 @@ class DrpActor(Actor):
         except ValueError:
             return
 
-        self.engine.newExposure(CCDFile(root, night, fname))
+        self.engine.onExposure(CCDFile(root, night, fname))
 
     def hxFilepath(self, keyvar):
         """ CCD Filepath callback"""
@@ -95,7 +97,7 @@ class DrpActor(Actor):
         rootNight, fitsType = os.path.split(rootNightType)
         root, night = os.path.split(rootNight)
 
-        self.engine.newExposure(HxFile(root, night, fname))
+        self.engine.onExposure(HxFile(root, night, fname))
 
     def spsFileIds(self, keyvar):
         """ spsFileIds callback. """
@@ -107,8 +109,7 @@ class DrpActor(Actor):
         except ValueError:
             return
 
-        # delay slightly to enforce time ordering. 1-newExposure 2-newVisit 3-newVisitGroup
-        reactor.callLater(0.2, self.engine.newVisit, visit)
+        self.engine.onVisit(visit)
 
     def iicSequenceCB(self, keyvar):
         """pfsConfigFinalized callback."""
@@ -121,8 +122,7 @@ class DrpActor(Actor):
             return
 
         if status == 'finished':
-            # delay slightly to enforce time ordering. 1-newExposure 2-newVisit 3-newVisitGroup
-            reactor.callLater(0.5, self.engine.newVisitGroup, sequenceId, groupId, sequenceType, name, comments, cmdStr, status, output)
+            self.engine.onVisitGroup(sequenceId, groupId, sequenceType, name, comments, cmdStr, status, output)
 
     def newPfsConfig(self, keyvar):
         """pfsConfigFinalized callback."""
@@ -134,7 +134,7 @@ class DrpActor(Actor):
         except ValueError:
             return
 
-        self.engine.newPfsConfig(PfsConfigFile.fromKeys(designId, visit, dateDir))
+        self.engine.onPfsConfig(PfsConfigFile.fromKeys(designId, visit, dateDir))
 
 
 def main():

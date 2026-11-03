@@ -9,12 +9,12 @@ import drpActor.utils.dotRoach as dotRoach
 reload(dotRoach)
 
 from lsst.daf.butler import Butler
-from lsst.daf.butler.registry import ConflictingDefinitionError
 from drpActor.utils.pfsVisit import PfsVisit
 from drpActor.utils.tasks.ingest import IngestHandler
-from lsst.pipe.base.separable_pipeline_executor import SeparablePipelineExecutor
-from lsst.pipe.base import Pipeline, ExecutionResources
+from lsst.pipe.base import Pipeline
 from drpActor.utils.chainedCollection import prepend_collection_chain
+from drpActor.utils.reduceProcess import runInChild
+from drpActor.utils.threading import Worker
 from ics.utils.opdb import opDB
 from lsst.daf.butler.cli.cliLog import CliLog
 
@@ -82,6 +82,9 @@ class DrpEngine:
         Threads per quantum (ExecutionResources.num_cores); usually keep at 1.
     clobberOutput : bool
         If True, allow overwriting existing outputs in the run.
+    timeout : dict or None
+        Keyword arguments of reductionTimeout ({"base": seconds, "perVisit": seconds}), a reduction running longer
+        than its visits allow being killed, None to never kill it.
     lsstLog : dict
         LSST logging configuration (e.g., {"level": 10, "long_log": False}).
     detrendCallback : dict
@@ -90,13 +93,14 @@ class DrpEngine:
 
     Notes
     -----
-    - `numProc` controls **process** parallelism at the executor level.
+    - `numProc` controls **process** parallelism at the executor level, in the reduction's child process.
     - `taskThreads` controls **per-quantum** threading; keep 1 unless explicitly tuned.
     - When fail_fast is True, the first task failure stops further execution in the current run.
     """
 
     def __init__(self, actor, datastore, rawRun, pfsConfigRun, inputCollection, outputCollection, ingestMode,
-                 pipelineYaml, groupVisit, fail_fast, numProc, taskThreads, clobberOutput, lsstLog, detrendCallback):
+                 pipelineYaml, groupVisit, fail_fast, numProc, taskThreads, clobberOutput, lsstLog, detrendCallback,
+                 timeout=None):
         """Lightweight init; heavy setup happens in dedicated methods."""
         self.actor = actor  # actor-provided logger/config access
         self.datastore = datastore  # butler repo root/URI
@@ -113,6 +117,7 @@ class DrpEngine:
         self.numProc = numProc  # number of worker processes (process-level parallelism)
         self.taskThreads = taskThreads
         self.clobberOutput = clobberOutput
+        self.timeout = timeout
         self.lsstLog = lsstLog if lsstLog is not None else {}
         self.detrendCallback = detrendCallback
         self.doGenDetrendKey = detrendCallback.get('activated', False)
@@ -132,11 +137,11 @@ class DrpEngine:
         self.butler = Butler(self.datastore, collections=[self.inputCollection, self.outputCollection])
 
         self.ingestHandler = IngestHandler(self)
-        self.reducePipeline, self.reduceButler, self.executor, self.timestamp = self.setupReducePipeline(datastore,
-                                                                                                         inputCollection,
-                                                                                                         outputCollection,
-                                                                                                         pipelineYaml,
-                                                                                                         taskThreads)
+        self.reducePipeline, self.timestamp = self.setupReducePipeline(datastore, outputCollection, pipelineYaml)
+
+        # ingest and reduction each run in their own thread, in the order they are queued.
+        self.ingestThread = Worker(actor, 'ingest')
+        self.reduceThread = Worker(actor, 'reduce')
         self.condaEnv = os.environ.get("CONDA_DEFAULT_ENV")
 
     @property
@@ -173,6 +178,7 @@ class DrpEngine:
         numProc = execution.get('numProc')
         taskThreads = execution.get('taskThreads')
         clobberOutput = execution.get('clobberOutput')
+        timeout = execution.get('timeout')
 
         # opdb
         opdbHost = siteConfig.get('opdb').get('host')
@@ -196,7 +202,8 @@ class DrpEngine:
                    taskThreads=taskThreads,
                    clobberOutput=clobberOutput,
                    lsstLog=lsstLog,
-                   detrendCallback=detrendCallback)
+                   detrendCallback=detrendCallback,
+                   timeout=timeout)
 
     def loadButler(self, run):
         """
@@ -218,51 +225,73 @@ class DrpEngine:
             self.logger.warning('Failed to load Butler: %s', self.actor.strTraceback(e))
             return None
 
-    def setupReducePipeline(self, datastore, inputCollection, chainedCollection, pipelineYaml, taskThreads=1):
+    def setupReducePipeline(self, datastore, chainedCollection, pipelineYaml):
         """
-        Set up the reduction pipeline and its executor.
+        Load the reduction pipeline and register a new timestamped output run at the head of the chain.
 
         Parameters
         ----------
         datastore : str
             Path to the datastore (Butler repo root/URI).
-        inputCollection : str
-            Name of the input collection.
         chainedCollection : str
             Name of the output chained collection (base of the run).
         pipelineYaml : str
             Path (relative to $PFS_INSTDATA_DIR/config) to the pipeline YAML.
-        taskThreads : int, optional
-            Threads per quantum (ExecutionResources.num_cores). Does not control process-level parallelism.
 
         Returns
         -------
         tuple
-            (pipeline, butler, executor, timestamp)
-
-        Notes
-        -----
-        - Use `self.numProc` later with `run_pipeline(..., num_proc=self.numProc)` to control process concurrency.
-        - `taskThreads` only affects intra-quantum threading; keep 1 when BLAS/OpenMP are pinned to 1.
+            (pipeline, timestamp), the run being chainedCollection/timestamp.
         """
-        # Load the reduction pipeline from YAML
-        pipeline = Pipeline.fromFile(os.path.join(os.getenv("PFS_INSTDATA_DIR"), 'config', pipelineYaml))
+        pipeline = Pipeline.fromFile(self.pipelinePath(pipelineYaml))
 
         # Append a timestamp to the output collection name
         timestamp = datetime.datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
         run = os.path.join(chainedCollection, timestamp)
 
-        # Initialize the Butler with the input and output collections
-        butler = Butler(datastore, collections=[inputCollection], run=run)
+        # a butler created with a run registers it.
+        Butler(datastore, run=run)
 
         # new run takes precedence over the previous ones.
         prepend_collection_chain(datastore, chainedCollection, run, logger=self.logger)
 
-        # Set up the pipeline executor for parallel processing
-        executor = SeparablePipelineExecutor(butler=butler, clobber_output=True,
-                                             resources=ExecutionResources(num_cores=taskThreads))
+        return pipeline, timestamp
 
-        return pipeline, butler, executor, timestamp
+    @staticmethod
+    def pipelinePath(pipelineYaml):
+        """Full path of a pipeline YAML given relative to $PFS_INSTDATA_DIR/config."""
+        return os.path.join(os.getenv("PFS_INSTDATA_DIR"), 'config', pipelineYaml)
+
+    def stop(self):
+        """Stop the ingest and reduction threads once their queued work is done."""
+        self.ingestThread.exit()
+        self.reduceThread.exit()
+
+    def onPfsConfig(self, pfsConfigFile):
+        """Queue a new pfsConfig file on the ingest thread, see newPfsConfig."""
+        self.ingestThread.putMsg(self.newPfsConfig, pfsConfigFile=pfsConfigFile)
+
+    def onExposure(self, exposureFile):
+        """Queue a new exposure file on the ingest thread, see newExposure."""
+        self.ingestThread.putMsg(self.newExposure, exposureFile=exposureFile)
+
+    def onVisit(self, visit, delay=0.2):
+        """
+        Queue a finished visit on the ingest thread, see newVisit.
+
+        The delay lets the keywords of the visit's last files, which come from other actors, be queued first.
+        """
+        self.ingestThread.putMsgLater(delay, self.newVisit, visit=visit)
+
+    def onVisitGroup(self, sequenceId, groupId, sequenceType, name, comments, cmdStr, status, output, delay=0.5):
+        """
+        Queue a finished IIC sequence on the ingest thread, see newVisitGroup.
+
+        The delay lets the sequence's last visit be queued first.
+        """
+        self.ingestThread.putMsgLater(delay, self.newVisitGroup, sequenceId=sequenceId, groupId=groupId,
+                                      sequenceType=sequenceType, name=name, comments=comments, cmdStr=cmdStr,
+                                      status=status, output=output)
 
     def newPfsConfig(self, pfsConfigFile):
         """
@@ -315,12 +344,12 @@ class DrpEngine:
 
     def newVisitGroup(self, sequenceId, groupId, sequenceType, name, comments, cmdStr, status, output):
         """
-        Resolve an IIC sequence into PFS visits, check ingestion state, and optionally run group reduction.
+        Resolve an IIC sequence into PFS visits, check ingestion state, and optionally queue the group reduction.
 
         The method queries opDB for all pfs_visit_id belonging to the given iic_sequence_id, verifies that each visit
-        exists in self.pfsVisits and is already ingested, then, if self.groupVisit is True, runs the reduction
-        pipeline on the set via processVisitGroup. Visits sharing a single sps_visit.exp_type are reduced with the
-        config overrides given by groupConfigOverride, a group mixing exp_types with the pipeline defaults.
+        exists in self.pfsVisits and is already ingested, then, if self.groupVisit is True, queues the reduction of
+        the set on the reduction thread, see reduceVisitGroup. Visits sharing a single sps_visit.exp_type are reduced
+        with the config overrides given by groupConfigOverride, a group mixing exp_types with the pipeline defaults.
 
         Note that by construction newVisitGroup is called after the end of newVisit, meaning that all related visits
         should already be ingested.
@@ -388,23 +417,20 @@ class DrpEngine:
 
         if self.groupVisit:
             uniqueExpTypes = sorted(set(expTypes.values()))
+            configOverride = None
 
             if len(uniqueExpTypes) == 1:
-                self.addConfigOverride(groupConfigOverride(uniqueExpTypes[0], str(sequenceType)))
+                configOverride = groupConfigOverride(uniqueExpTypes[0], str(sequenceType))
             else:
                 self.logger.warning(f'visitGroup ({sequenceId}) : mixed exp_type {uniqueExpTypes}, '
                                     f'reducing without config override')
-                # an empty override marks the run as holding the pipeline defaults, so the next override rolls a new run.
-                if self.configOverride:
-                    self.newReduceRun(configOverride={})
-                else:
-                    self.addConfigOverride({})
 
-            self.processVisitGroup([self.pfsVisits[vid] for vid in expTypes])
+            self.reduceThread.putMsg(self.reduceVisitGroup, pfsVisits=[self.pfsVisits[vid] for vid in expTypes],
+                                     configOverride=configOverride)
 
     def processPfsVisit(self, pfsVisit):
         """
-        Ingest and reduce data for a single PFS visit, including optional callbacks and tools.
+        Ingest a single PFS visit, queue its reduction and run the optional tools.
 
         Parameters
         ----------
@@ -416,12 +442,7 @@ class DrpEngine:
 
         if pfsVisit.isIngested and not self.groupVisit:
             if self.doAutoReduce:
-                # setting up a callback to be generated when the file is generated.
-                if self.doGenDetrendKey:
-                    pfsVisit.setupDetrendCallback(self)
-
-                # Running the pipeline for that visit.
-                self.runReductionPipeline(where=f"visit={pfsVisit.visit}")
+                self.reduceThread.putMsg(self.reduceVisit, pfsVisit=pfsVisit)
 
             # run roaches ! run !
             if self.dotRoach is not None:
@@ -430,11 +451,91 @@ class DrpEngine:
         # Just declaring that visit should be processed, just a placeholder for now.
         pfsVisit.finish()
 
+    def ingestCommand(self, cmd, pfsConfigFile, exposureFiles):
+        """
+        Register and ingest the files of one visit given by a command.
+
+        Parameters
+        ----------
+        cmd : actorcore.Command
+            Command receiving the ingest status.
+        pfsConfigFile : PfsConfigFile
+            The visit's pfsConfig file.
+        exposureFiles : list of PfsFile
+            The visit's exposure files.
+        """
+        self.newPfsConfig(pfsConfigFile)
+
+        for exposureFile in exposureFiles:
+            self.newExposure(exposureFile)
+
+        self.ingestHandler.doIngest(self.pfsVisits[pfsConfigFile.visit], cmd=cmd)
+
+    def reduceVisit(self, pfsVisit):
+        """
+        Reduce a single ingested visit, with the detrend callback if activated, see processVisitGroup.
+
+        Parameters
+        ----------
+        pfsVisit : PfsVisit
+            Visit to reduce.
+        """
+        # setting up a callback to be generated when the file is generated.
+        if self.doGenDetrendKey:
+            pfsVisit.setupDetrendCallback(self)
+
+        self.processVisitGroup([pfsVisit])
+
+    def reduceVisitGroup(self, pfsVisits, configOverride=None):
+        """
+        Reduce a group of ingested visits with the given config overrides, see processVisitGroup.
+
+        Parameters
+        ----------
+        pfsVisits : list[PfsVisit]
+            Visits to reduce together.
+        configOverride : dict, optional
+            {taskLabel: {configKey: value}}, None for the pipeline defaults.
+        """
+        if configOverride is not None:
+            self.addConfigOverride(configOverride)
+        # an empty override marks the run as holding the pipeline defaults, so the next override rolls a new run.
+        elif self.configOverride:
+            self.newReduceRun(configOverride={})
+        else:
+            self.addConfigOverride({})
+
+        self.processVisitGroup(pfsVisits)
+
+    def reduceCommand(self, cmd, where, configOverride):
+        """
+        Reduce the data selected by a command, and finish the command with the outcome.
+
+        Parameters
+        ----------
+        cmd : actorcore.Command
+            Command to finish.
+        where : str
+            Data query selecting what to reduce.
+        configOverride : dict
+            {taskLabel: {configKey: value}}, merged into the active overrides.
+        """
+        if configOverride:
+            self.addConfigOverride(configOverride)
+
+        status = self.runReductionPipeline(where=where)
+
+        if status != 'ok':
+            cmd.fail(f'text="reduction {status}"')
+            return
+
+        cmd.finish()
+
     def processVisitGroup(self, pfsVisits):
         """
         Reduce a group of already ingested PFS visits in one pipeline execution and finalize them.
 
-        The input visits are assumed to exist in self.pfsVisits and be marked ingested (validated by newVisitGroup).
+        The input visits are assumed to exist in self.pfsVisits and be marked ingested.
         The method logs the visit IDs, runs the reduction pipeline once with a "visit in (...)" WHERE clause, then
         calls finish() on each PfsVisit regardless of pipeline outcome.
 
@@ -446,73 +547,81 @@ class DrpEngine:
         Notes
         -----
         - Process concurrency is controlled by self.numProc; per-quantum threading by self.taskThreads.
-        - Any pipeline exception is logged upstream; this method still attempts to finish all visits.
+        - The pipeline outcome is reported in reduceExposureStatus; all visits are finished regardless.
         """
         visitStr = ','.join(str(p.visit) for p in pfsVisits)
 
         self.logger.info(f'processVisitGroup started on {visitStr}')
         t0 = time.perf_counter()
-        self.runReductionPipeline(where=f"visit in ({visitStr})")
+        status = self.runReductionPipeline(where=f"visit in ({visitStr})")
         t1 = time.perf_counter()
 
         cmd = self.actor.bcast
+        returnCode, statusStr = (0, 'OK') if status == 'ok' else (1, status.upper())
 
         for p in pfsVisits:
             p.finish()
-            cmd.inform(f'reduceExposureStatus={p.visit},0,"OK",{t1 - t0:.1f}')
-
+            cmd.inform(f'reduceExposureStatus={p.visit},{returnCode},"{statusStr}",{t1 - t0:.1f}')
 
     def runReductionPipeline(self, where, retry=True):
         """
-        Execute the reduction pipeline for a given visit.
+        Run the reduction pipeline on the selected data in the current run, in a child process, see runInChild.
 
         Parameters
         ----------
         where : str
-            Query to filter the data for the specific visit.
+            Data query selecting what to reduce.
         retry : bool
-            Allow a single retry in a fresh run when the software versions no longer match the current one.
+            Allow a single retry in a new run when the current run holds other software versions or task
+            configs.
+
+        Returns
+        -------
+        status : str
+            'ok', 'failed', 'conflict', 'timeout' or 'crashed'.
         """
-        try:
-            quantumGraph = self.executor.make_quantum_graph(pipeline=self.reducePipeline, where=where)
-        except Exception as e:
-            self.logger.exception(e)
-            return
+        run = os.path.join(self.outputCollection, self.timestamp)
+        logDir = os.path.expandvars(self.actor.actorConfig['logging']['logdir'])
+        now = datetime.datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+        logFile = os.path.join(logDir, 'reductions', self.timestamp, f'{now}.log')
 
-        try:
-            self.executor.pre_execute_qgraph(quantumGraph)
-        except ConflictingDefinitionError as e:
-            # A run holds a single packages dataset, so a conda package updated underneath the actor makes
-            # that run unusable, only a new one can record the new versions.
-            if not retry:
-                raise
+        self.logger.info(f'reduction where="{where}" num_proc={self.numProc} fail_fast={self.fail_fast} '
+                         f'log={logFile}')
 
-            self.logger.warning(f'Software versions changed: {e}')
+        status, message = runInChild(logFile, timeout=self.timeout, datastore=self.datastore,
+                                     inputCollection=self.inputCollection, run=run,
+                                     pipelinePath=self.pipelinePath(self.pipelineYaml), where=where,
+                                     configOverride=self.configOverride, numProc=self.numProc,
+                                     taskThreads=self.taskThreads, failFast=self.fail_fast,
+                                     clobberOutput=self.clobberOutput)
+
+        self.logger.info(f'reduction where="{where}" {status}')
+
+        if status == 'conflict' and retry:
+            # A run holds a single packages dataset and a single config per task, so a conda package updated
+            # underneath the actor makes that run unusable, only a new one can record the new versions.
+            self.logger.warning(f'Run holds other software versions or task configs: {message}')
             self.newReduceRun(configOverride=self.configOverride)
-            self.runReductionPipeline(where, retry=False)
-            return
+            return self.runReductionPipeline(where, retry=False)
 
-        self.logger.info(f'run_pipeline where="{where}" num_proc={self.numProc} fail_fast={self.fail_fast}')
-        # passing down num_proc for the most recent version.
-        self.executor.run_pipeline(graph=quantumGraph, num_proc=self.numProc, fail_fast=self.fail_fast)
+        if status != 'ok':
+            self.logger.warning(f'reduction where="{where}" {status}: {message}')
+
+        return status
 
     def newReduceRun(self, configOverride=None):
         """
-        Create a new output run and rebuild the reduction pipeline and its executor.
+        Create a new output run and reload the reduction pipeline.
 
         Parameters
         ----------
         configOverride : dict, optional
-            Overrides to set on the pipeline, which is reloaded from yaml without any.
+            Overrides to apply in the new run, which starts without any.
         """
         self.logger.info('Creating new reduction run.')
 
-        (self.reducePipeline, self.reduceButler,
-         self.executor, self.timestamp) = self.setupReducePipeline(self.datastore,
-                                                                   self.inputCollection,
-                                                                   self.outputCollection,
-                                                                   self.pipelineYaml,
-                                                                   self.taskThreads)
+        self.reducePipeline, self.timestamp = self.setupReducePipeline(self.datastore, self.outputCollection,
+                                                                       self.pipelineYaml)
         self.configOverride = None
 
         if configOverride is not None:
@@ -520,8 +629,8 @@ class DrpEngine:
 
     def addConfigOverride(self, configOverride):
         """
-        Merge config overrides into the active ones and set them on the pipeline, creating a new run
-        whenever that changes the current configuration.
+        Merge config overrides into the active ones, creating a new run whenever that changes the current
+        configuration.
 
         Parameters
         ----------
@@ -548,8 +657,7 @@ class DrpEngine:
                 if label not in self.reducePipeline.task_labels:
                     continue
 
-                self.reducePipeline.addConfigOverride(label, key=key, value=value)
-                self.logger.info(f'reducePipeline.addConfigOverride:{label} {key}={value}')
+                self.logger.info(f'config override:{label} {key}={value}')
 
         self.configOverride = merged
 

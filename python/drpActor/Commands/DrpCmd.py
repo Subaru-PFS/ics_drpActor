@@ -82,6 +82,10 @@ class DrpCmd(object):
         """Report status and version; obtain and send current data"""
         self.actor.sendVersionKey(cmd)
 
+        if self.engine is not None:
+            cmd.inform(f'text="ingest queue={self.engine.ingestThread.queue.qsize()} '
+                       f'reduce queue={self.engine.reduceThread.queue.qsize()}"')
+
         cmd.inform('text="Present!"')
         cmd.finish()
 
@@ -89,6 +93,11 @@ class DrpCmd(object):
         """Get drp engine."""
         engine = self.actor.engine if 'newEngine' not in cmdKeys else self.actor.loadDrpEngine()
         return engine
+
+    def releaseEngine(self, engine, cmdKeys):
+        """Stop an engine created for this command only, once the work queued on it is done."""
+        if 'newEngine' in cmdKeys:
+            engine.stop()
 
     def ingest(self, cmd):
         """Ingest visits into the configured datastore."""
@@ -109,23 +118,25 @@ class DrpCmd(object):
                 cmd.warn(f'text="{visit} not found..."')
                 continue
 
-            pfsConfigFile = PfsConfigFile(visit, filepath=pfsConfigPath)
-            engine.newPfsConfig(pfsConfigFile)
+            exposureFiles = []
 
             for filepath in glob.glob(pattern):
                 rootNightType, fname = os.path.split(filepath)
                 rootNight, fitsType = os.path.split(rootNightType)
                 root, night = os.path.split(rootNight)
                 File = HxFile if fitsType == 'ramps' else CCDFile
-                engine.newExposure(File(root, night, fname))
+                exposureFiles.append(File(root, night, fname))
 
-            pfsVisit = engine.pfsVisits.get(visit)
-            engine.ingestHandler.doIngest(pfsVisit, cmd=cmd)
+            engine.ingestThread.putMsg(engine.ingestCommand, cmd=cmd,
+                                       pfsConfigFile=PfsConfigFile(visit, filepath=pfsConfigPath),
+                                       exposureFiles=exposureFiles)
 
-        cmd.finish()
+        # queued after the ingests, so finishing once they are done.
+        engine.ingestThread.putMsg(cmd.finish)
+        self.releaseEngine(engine, cmdKeys)
 
     def reduce(self, cmd):
-        """Ingest file providing a filepath."""
+        """Reduce the data selected by where."""
         cmdKeys = cmd.cmd.keywords
 
         where = cmdKeys["where"].values[0]
@@ -147,13 +158,8 @@ class DrpCmd(object):
             configOverride['isr'] = {'h4.quickCDS': bool(cmdKeys['quickCDS'].values[0])}
 
         engine = self.getEngine(cmdKeys)
-
-        if configOverride:
-            engine.addConfigOverride(configOverride)
-
-        engine.runReductionPipeline(where=where)
-
-        cmd.finish()
+        engine.reduceThread.putMsg(engine.reduceCommand, cmd=cmd, where=where, configOverride=configOverride)
+        self.releaseEngine(engine, cmdKeys)
 
     def startDotRoach(self, cmd):
         """ Start dot loop. """
@@ -173,7 +179,8 @@ class DrpCmd(object):
             roach = dotRoach.DotRoach(self.engine, dataRoot, maskFile, "")
             roach.finish()
 
-        self.engine.startDotRoach(dataRoot, maskFile, cams, keepMoving=keepMoving)
+        self.engine.ingestThread.call(self.engine.startDotRoach, dataRoot=dataRoot, maskFile=maskFile, cams=cams,
+                                      keepMoving=keepMoving)
         cmd.finish('text="starting loop... Run dotRoaches, run ! "')
 
     def processDotRoach(self, cmd):
@@ -198,7 +205,7 @@ class DrpCmd(object):
 
     def stopDotRoach(self, cmd):
         """ Stop dot loop. """
-        self.engine.stopDotRoach(cmd)
+        self.engine.ingestThread.call(self.engine.stopDotRoach, cmd=cmd)
         cmd.finish()
 
     def doDetrend(self, cmd):
