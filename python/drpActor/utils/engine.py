@@ -25,7 +25,7 @@ CliLog.setLogLevels([('lsst', 'INFO'), ('pfs', 'INFO')])
 CliLog.initLog(longlog=True)
 
 
-def groupConfigOverride(expType, sequenceType):
+def groupConfigOverride(expType, sequenceType, sequenceName):
     """
     Config overrides for reducing a group of visits sharing the same exposure type.
 
@@ -35,6 +35,8 @@ def groupConfigOverride(expType, sequenceType):
         sps_visit.exp_type of the visits (e.g. 'object', 'arc', 'flat', 'dark', 'bias', 'test').
     sequenceType : str
         Type of the IIC sequence the visits belong to (e.g. 'scienceObject', 'scienceObject_windowed').
+    sequenceName : str
+        Name of the IIC sequence, '' if it has none.
 
     Returns
     -------
@@ -44,9 +46,13 @@ def groupConfigOverride(expType, sequenceType):
     # opdb does not record windowing, only the sequenceType does.
     requireAdjustDetectorMap = expType == 'object' and not sequenceType.endswith('_windowed')
     quickCDS = expType not in ['object', 'dark']
+    # Test exposures and twilights are taken with no SKY fibre, mergeArms fails to subtract the sky.
+    # Twilights are 'object' exposures, only the sequence name tells them apart.
+    doSubtractSky1d = expType != 'test' and not sequenceName.startswith('Twilight sky')
 
     return dict(reduceExposure={'requireAdjustDetectorMap': requireAdjustDetectorMap},
-                isr={'h4.quickCDS': quickCDS})
+                isr={'h4.quickCDS': quickCDS},
+                mergeArms={'doSubtractSky1d': doSubtractSky1d})
 
 
 class DrpEngine:
@@ -419,9 +425,9 @@ class DrpEngine:
                          f'sequenceType={sequenceType} name={name!r} comments={comments!r}')
 
         if self.groupVisit:
-            self.reduceSequence(sequenceId, sequenceType=str(sequenceType))
+            self.reduceSequence(sequenceId)
 
-    def reduceSequence(self, sequenceId, sequenceType=None, force=False, cmd=None):
+    def reduceSequence(self, sequenceId, force=False, cmd=None):
         """
         Queue the reduction of an IIC sequence's visits as one group, ingesting first the ones the butler lacks.
 
@@ -434,8 +440,6 @@ class DrpEngine:
         ----------
         sequenceId : int
             iic_sequence.iic_sequence_id.
-        sequenceType : str, optional
-            iic_sequence.sequence_type, looked up in opdb if None.
         force : bool
             Reduce the group even if all its visits are already reduced.
         cmd : actorcore.Command, optional
@@ -458,9 +462,7 @@ class DrpEngine:
         if not expTypes:
             return skip('no SPS visit')
 
-        if sequenceType is None:
-            sequenceType = catchUp.sequenceType(sequenceId)
-
+        sequenceType, sequenceName = catchUp.sequenceInfo(sequenceId)
         visits = sorted(expTypes)
         butler = self.queryButler()
         taken = catchUp.visitExposures(visits)
@@ -488,7 +490,7 @@ class DrpEngine:
         configOverride = None
 
         if len(uniqueExpTypes) == 1:
-            configOverride = groupConfigOverride(uniqueExpTypes[0], str(sequenceType))
+            configOverride = groupConfigOverride(uniqueExpTypes[0], sequenceType, sequenceName)
         else:
             self.logger.warning(f'visitGroup ({sequenceId}) : mixed exp_type {uniqueExpTypes}, '
                                 f'reducing without config override')
@@ -583,8 +585,8 @@ class DrpEngine:
             unreduced = complete - catchUp.reducedVisits(butler, self.outputCollection, complete) - self.reductionQueued
 
             if self.groupVisit:
-                for sequenceId, sequenceType in sorted(catchUp.finishedSequences(unreduced).items()):
-                    nQueued += self.reduceSequence(sequenceId, sequenceType=sequenceType)
+                for sequenceId in sorted(catchUp.finishedSequences(unreduced)):
+                    nQueued += self.reduceSequence(sequenceId)
             else:
                 for visit in sorted(unreduced):
                     self.reductionQueued.add(visit)
