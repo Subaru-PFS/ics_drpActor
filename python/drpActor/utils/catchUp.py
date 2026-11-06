@@ -220,26 +220,24 @@ def finishedSequences(visits):
 
     Returns
     -------
-    sequenceTypes : dict
-        {sequenceId: iic_sequence.sequence_type}.
+    sequenceIds : set of int
+        iic_sequence.iic_sequence_id.
     """
     visits = sorted(set(visits))
 
     if not visits:
-        return dict()
+        return set()
 
-    sql = ('SELECT DISTINCT iic_sequence.iic_sequence_id, iic_sequence.sequence_type '
-           'FROM visit_set INNER JOIN iic_sequence ON visit_set.iic_sequence_id = iic_sequence.iic_sequence_id '
-           'INNER JOIN iic_sequence_status ON iic_sequence.iic_sequence_id = iic_sequence_status.iic_sequence_id '
+    sql = ('SELECT DISTINCT visit_set.iic_sequence_id FROM visit_set '
+           'INNER JOIN iic_sequence_status ON visit_set.iic_sequence_id = iic_sequence_status.iic_sequence_id '
            'WHERE visit_set.pfs_visit_id IN %(visits)s AND iic_sequence_status.finished_at IS NOT NULL')
 
-    rows = opDB.fetchall(sql, dict(visits=tuple(visits)))
-    return {int(sequenceId): str(sequenceType) for sequenceId, sequenceType in rows}
+    return {int(sequenceId) for sequenceId, in opDB.fetchall(sql, dict(visits=tuple(visits)))}
 
 
-def sequenceType(sequenceId):
+def sequenceInfo(sequenceId):
     """
-    Type of an IIC sequence, from opdb.
+    Type and name of an IIC sequence, from opdb.
 
     Parameters
     ----------
@@ -248,9 +246,16 @@ def sequenceType(sequenceId):
 
     Returns
     -------
-    sequenceType : str or None
-        iic_sequence.sequence_type, None if the sequence does not exist.
+    sequenceType : str
+        iic_sequence.sequence_type, '' if the sequence does not exist.
+    sequenceName : str
+        iic_sequence.name, '' if the sequence has none or does not exist.
     """
-    rows = opDB.fetchall('SELECT sequence_type FROM iic_sequence WHERE iic_sequence_id = %(sequenceId)s',
+    rows = opDB.fetchall('SELECT sequence_type, name FROM iic_sequence WHERE iic_sequence_id = %(sequenceId)s',
                          dict(sequenceId=int(sequenceId)))
-    return str(rows[0][0]) if len(rows) else None
+
+    if not len(rows):
+        return '', ''
+
+    sequenceType, name = rows[0]
+    return str(sequenceType or ''), str(name or '')
