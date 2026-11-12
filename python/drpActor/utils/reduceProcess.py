@@ -36,7 +36,7 @@ def reductionTimeout(nVisits, base=600, perVisit=600):
     return base + perVisit * nVisits
 
 
-def runInChild(logFile, timeout=None, pollInterval=10, **reduceArgs):
+def runInChild(logFile, timeout=None, pollInterval=10, onPoll=None, **reduceArgs):
     """
     Run a reduction in a child process, waiting for its outcome.
 
@@ -52,6 +52,8 @@ def runInChild(logFile, timeout=None, pollInterval=10, **reduceArgs):
         visits allow, None to never kill it.
     pollInterval : float
         Seconds between checks of the child.
+    onPoll : callable, optional
+        Called without arguments at each check of the child while it is running.
     **reduceArgs
         Arguments of reduce.
 
@@ -101,6 +103,9 @@ def runInChild(logFile, timeout=None, pollInterval=10, **reduceArgs):
             if limit is not None and time.monotonic() - start > limit:
                 _kill(child)
                 return 'timeout', f'reduction killed after {limit:.0f}s'
+
+            if onPoll is not None:
+                onPoll()
 
 
 def _kill(child):

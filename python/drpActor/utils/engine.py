@@ -11,6 +11,7 @@ reload(dotRoach)
 from lsst.daf.butler import Butler
 import drpActor.utils.catchUp as catchUp
 from drpActor.utils.files import visitFiles
+from drpActor.utils.outputs import KEYWORDS, OutputWatcher
 from drpActor.utils.pfsVisit import PfsVisit
 from drpActor.utils.tasks.ingest import IngestHandler
 from lsst.pipe.base import Pipeline
@@ -102,9 +103,9 @@ class DrpEngine:
         replayed values.
     lsstLog : dict
         LSST logging configuration (e.g., {"level": 10, "long_log": False}).
-    detrendCallback : dict
-        Detrend-key callback configuration (e.g., {"activated": False, "useSilentThread": True,
-        "waitInterval": 1, "timeout": 90}).
+    announce : dict, optional
+        Outputs announced while a reduction runs: {"pollInterval": seconds between checks of the reduction,
+        "datasets": {datasetType: keyword}}, keyword one of outputs.KEYWORDS; None announces nothing.
 
     Notes
     -----
@@ -114,7 +115,7 @@ class DrpEngine:
     """
 
     def __init__(self, actor, datastore, rawRun, pfsConfigRun, inputCollection, outputCollection, ingestMode,
-                 pipelineYaml, groupVisit, fail_fast, numProc, taskThreads, clobberOutput, lsstLog, detrendCallback,
+                 pipelineYaml, groupVisit, fail_fast, numProc, taskThreads, clobberOutput, lsstLog, announce=None,
                  timeout=None, lookback=24, catchUpDelay=120, replayWindow=5):
         """Lightweight init; heavy setup happens in dedicated methods."""
         self.actor = actor  # actor-provided logger/config access
@@ -138,8 +139,13 @@ class DrpEngine:
         self.replayWindow = replayWindow
         self.replayEnds = 0  # time.monotonic() until which keyword events are ignored.
         self.lsstLog = lsstLog if lsstLog is not None else {}
-        self.detrendCallback = detrendCallback
-        self.doGenDetrendKey = detrendCallback.get('activated', False)
+        announce = announce if announce is not None else {}
+        self.announcePollInterval = announce.get('pollInterval', 10)
+        self.announcedDatasets = announce.get('datasets', {})
+
+        unknown = set(self.announcedDatasets.values()) - set(KEYWORDS)
+        if unknown:
+            raise ValueError(f'unknown announcement keywords {sorted(unknown)}, known: {sorted(KEYWORDS)}')
 
         self.pfsVisits = {}  # visitId -> list of exposure ids
         self.rawButler = None  # butler for raw/ingest operations
@@ -210,9 +216,9 @@ class DrpEngine:
         opdbHost = siteConfig.get('opdb').get('host')
         opDB.host = opdbHost
 
-        # logs and callbacks
+        # logs and announcements
         lsstLog = siteConfig.get('lsstLog')
-        detrendCallback = siteConfig.get('detrendCallback')
+        announce = siteConfig.get('announce')
 
         return cls(actor,
                    datastore=datastore,
@@ -228,7 +234,7 @@ class DrpEngine:
                    taskThreads=taskThreads,
                    clobberOutput=clobberOutput,
                    lsstLog=lsstLog,
-                   detrendCallback=detrendCallback,
+                   announce=announce,
                    timeout=timeout,
                    lookback=lookback,
                    catchUpDelay=catchUpDelay,
@@ -666,17 +672,13 @@ class DrpEngine:
 
     def reduceVisit(self, pfsVisit):
         """
-        Reduce a single ingested visit, with the detrend callback if activated, see processVisitGroup.
+        Reduce a single ingested visit, see processVisitGroup.
 
         Parameters
         ----------
         pfsVisit : PfsVisit
             Visit to reduce.
         """
-        # setting up a callback to be generated when the file is generated.
-        if self.doGenDetrendKey:
-            pfsVisit.setupDetrendCallback(self)
-
         self.processVisitGroup([pfsVisit.visit])
 
     def reduceVisitGroup(self, visits, configOverride=None, cmd=None):
@@ -799,12 +801,19 @@ class DrpEngine:
         self.logger.info(f'reduction where="{where}" num_proc={self.numProc} fail_fast={self.fail_fast} '
                          f'log={logFile}')
 
-        status, message = runInChild(logFile, timeout=self.timeout, datastore=self.datastore,
+        watchers = [(keyword, OutputWatcher(self.datastore, run, where, datasetType, logger=self.logger))
+                    for datasetType, keyword in self.announcedDatasets.items()]
+
+        status, message = runInChild(logFile, timeout=self.timeout, pollInterval=self.announcePollInterval,
+                                     onPoll=lambda: self.announceOutputs(watchers), datastore=self.datastore,
                                      inputCollection=self.inputCollection, run=run,
                                      pipelinePath=self.pipelinePath(self.pipelineYaml), where=where,
                                      configOverride=self.configOverride, numProc=self.numProc,
                                      taskThreads=self.taskThreads, failFast=self.fail_fast,
                                      clobberOutput=self.clobberOutput)
+
+        # the outputs written since the last check of the child.
+        self.announceOutputs(watchers)
 
         self.logger.info(f'reduction where="{where}" {status}')
 
@@ -819,6 +828,20 @@ class DrpEngine:
             self.logger.warning(f'reduction where="{where}" {status}: {message}')
 
         return status
+
+    def announceOutputs(self, watchers):
+        """
+        Generate a keyword for each output written since the watchers' previous poll.
+
+        Parameters
+        ----------
+        watchers : list of tuple
+            (keyword, drpActor.utils.outputs.OutputWatcher) of the running reduction, keyword one of
+            outputs.KEYWORDS.
+        """
+        for keyword, watcher in watchers:
+            for dataId, filepath in watcher.poll():
+                self.actor.bcast.inform(KEYWORDS[keyword](dataId, filepath, watcher.run, watcher.elapsed()))
 
     def newReduceRun(self, configOverride=None):
         """
