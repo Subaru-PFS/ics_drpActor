@@ -82,25 +82,6 @@ class PfsVisit:
         """
         self.exposureFiles.append(exposureFile)
 
-    def setupDetrendCallback(self, engine):
-        """
-        Set up a callback to monitor the completion of post-ISR processing for exposures.
-
-        Parameters
-        ----------
-        butler : lsst.daf.butler.Butler
-            The Butler instance used to query the datastore.
-        callback : callable
-            A callback function to invoke when the post-ISR image is available.
-
-        Notes
-        -----
-        This method iterates over all exposure files associated with the visit and
-        sets up a callback for each one to notify when the post-ISR image becomes available.
-        """
-        for exposureFile in self.exposureFiles:
-            exposureFile.setupDetrendKeyCallback(engine)
-
     def finish(self):
         """Placeholder"""
         self.wasProcessed = True

@@ -217,14 +217,6 @@ class DrpCmd(object):
         self.engine.ingestThread.call(self.engine.stopDotRoach, cmd=cmd)
         cmd.finish()
 
-    def doDetrend(self, cmd):
-        """activating/deactivating auto reduction."""
-        cmdKeys = cmd.cmd.keywords
-
-        doDetrend = 'off' not in cmdKeys
-        self.engine.doAutoDetrend = doDetrend
-        cmd.finish(f'text="do drp.doAutoDetrend {doDetrend}"')
-
     def doReduce(self, cmd):
         """activating/deactivating auto reduction."""
         cmdKeys = cmd.cmd.keywords

@@ -1,9 +1,7 @@
 import glob
 import os
-import time
 
 import drpActor.utils.drpParsing as drpParsing
-from drpActor.utils.threading import singleShot
 from ics.utils.sps.spectroIds import SpectroIds
 
 
@@ -105,7 +103,6 @@ class PfsFile:
 
         self.arm = PfsFile.fromArmNum[self.armNum]
         self.ingested = False
-        self.postIsrFilepath = ''
 
     @property
     def filepath(self):
@@ -152,77 +149,6 @@ class PfsFile:
         Sets `self.ingested` to True if the raw file is found in the datastore.
         """
         self.ingested = len(list(butler.registry.queryDatasets("raw", instrument='PFS', **self.dataId))) == 1
-
-    def getPostIsrFilepath(self, engine):
-        """
-        Retrieve the file path of the post-ISR image.
-
-        Parameters
-        ----------
-        butler : lsst.daf.butler.Butler
-            Butler instance used to query the datastore.
-
-        Returns
-        -------
-        str
-            The local file path to the post-ISR image.
-        """
-
-        def toPostISRCCDFilename(dataId, outputCollection, run):
-            parts = ['postISRCCD', 'PFS', f'{dataId["visit"]:06d}', f'{dataId["arm"]}{dataId["spectrograph"]}',
-                     outputCollection.replace('/', '_'), run]
-            filename = f'{"_".join(parts)}.fits'
-            return filename
-
-        directory = os.path.join(engine.datastore, engine.outputCollection, engine.timestamp, 'postISRCCD',
-                                 self.night.replace('-', ''), f'{self.dataId["visit"]:06d}')
-        filename = toPostISRCCDFilename(self.dataId, engine.outputCollection, engine.timestamp)
-        fullPath = os.path.join(directory, filename)
-
-        return fullPath
-
-    @singleShot
-    def setupDetrendKeyCallback(self, engine):
-        """
-        Monitor the datastore for the presence of post-ISR images and trigger a callback.
-
-        Parameters
-        ----------
-        pfsVisit : int
-            The visit ID associated with the observation.
-        butler : lsst.daf.butler.Butler
-            Butler instance used to query the datastore.
-        callback : callable
-            The callback function to invoke when the post-ISR image is available.
-
-        Notes
-        -----
-        This function waits for the post-ISR image to become available within a time limit.
-        If the image is found, the callback is triggered with the image's file path.
-        If not found, a warning is logged.
-        """
-        # constructing the path only once.
-        self.postIsrFilepath = self.getPostIsrFilepath(engine)
-
-        def postIsrWasGenerated():
-            """Check if the post-ISR image is available in the datastore."""
-            if not self.postIsrFilepath:
-                return False
-            return len(glob.glob(self.postIsrFilepath)) != 0
-
-        start_time = time.time()
-        config = engine.detrendCallback
-
-        # Wait for the post-ISR image to become available or until timeout
-        while not postIsrWasGenerated():
-            if (time.time() - start_time) > config['timeout']:
-                break
-
-            time.sleep(config['waitInterval'])
-
-        # If post-ISR image found, trigger callback; otherwise, log a warning
-        if postIsrWasGenerated():
-            engine.actor.bcast.inform(f'detrend={self.postIsrFilepath}')
 
 
 class CCDFile(PfsFile):
